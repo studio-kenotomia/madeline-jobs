@@ -292,7 +292,7 @@ def update_companies(state: Dict, now: datetime, run_radar: bool) -> None:
         if node.get("signals", {}).get("eu_funding"):
             signals.append("Appears in recent EU funding or tender records.")
         node["radar_signals"] = signals
-        open_relevant = [j for j in state["jobs"].values() if j.get("company") == node["name"] and j.get("open_status") == "open" and (j.get("analysis") or {}).get("tier") in VISIBLE]
+        open_relevant = [j for j in state["jobs"].values() if (j.get("company") or "").lower() == node["name"].lower() and j.get("open_status") == "open" and (j.get("analysis") or {}).get("tier") in VISIBLE]
         node["has_open_match"] = bool(open_relevant)
         strength = len(signals) + (2 if node.get("speculative_cv") else 0)
         node["radar_score"] = strength
