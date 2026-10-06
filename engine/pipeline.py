@@ -318,7 +318,8 @@ def angle_for(node: Dict) -> str:
 
 def build_documents(state: Dict, now: datetime) -> None:
     ranked = sorted([j for j in state["jobs"].values() if j.get("open_status") != "closed"], key=lambda j: -(j.get("analysis") or {}).get("score", 0))
-    targets = [j for j in ranked if (j.get("analysis") or {}).get("tier") in VISIBLE][:12]
+    targets = [j for j in ranked if (j.get("analysis") or {}).get("tier") in ("exceptional", "apply", "worth")][:14]
+    targets += [j for j in ranked if (j.get("analysis") or {}).get("tier") == "verify"][:3]
     targets += [j for j in state["jobs"].values() if j.get("application_status") in ("saved", "prepared") and j not in targets]
     for job in targets:
         if job.get("doc_status") == "frozen_submitted_version":

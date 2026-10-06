@@ -83,6 +83,14 @@ class Ranking(unittest.TestCase):
         a = rank.evaluate(job("team_manager"))
         self.assertNotIn(a["tier"], ("apply", "exceptional"))
 
+    def test_french_required_is_blocker(self):
+        a = rank.evaluate(job("french_hr"))
+        self.assertTrue(any("French" in b for b in a["blockers"]))
+        self.assertNotIn(a["tier"], ("apply", "exceptional", "worth"))
+
+    def test_minneapolis_is_not_thessaloniki(self):
+        self.assertEqual(rank.evaluate(job("minneapolis_remote"))["rejection"], "geography")
+
 
 @unittest.skipUnless((ROOT / "profile.json").exists(), "profile.json not unsealed")
 class Documents(unittest.TestCase):

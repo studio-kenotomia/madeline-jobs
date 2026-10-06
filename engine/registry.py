@@ -62,7 +62,7 @@ def build() -> List[Dict]:
     if os.environ.get("RADAR_HOST") == "mac":
         add("skywalker", "Skywalker.gr", 40, lambda ctx: greek.skywalker(), kind="board", note="Listing pages only. Full ads block automated reading.")
     add("mac-relay", "Mac relay (Skywalker and DYPA, which block GitHub's servers)", 20, lambda ctx: relay(), kind="relay", note="Fresh only while the Mac is on.")
-    add("dypa", "DYPA Hot Jobs (public employment service)", 60, lambda ctx: greek.dypa_hotjobs(), kind="public", note="Slow from GitHub's servers; the Mac relay also reads it.")
+    add("dypa", "DYPA Hot Jobs (public employment service)", 180, lambda ctx: greek.dypa_hotjobs(), kind="public", note="Often times out from GitHub's servers; the Mac relay also reads it.")
     add("diavgeia", "Diavgeia public notices (Thessaloniki universities, CERTH, region, city)", 180, lambda ctx: greek.diavgeia(), kind="public")
     add("cedefop", "Cedefop, EU agency in Thessaloniki", 120, lambda ctx: pages.cedefop(), kind="page")
     add("euraxess", "EURAXESS research jobs in Greece", 180, lambda ctx: pages.euraxess(ctx.get("known", set())), kind="page")

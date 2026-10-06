@@ -27,5 +27,9 @@
   "greek_secretary": {"title": "Γραμματειακή υποστήριξη", "company": "Ιατρείο", "location": "Θεσσαλονίκη", "description": "Ζητείται υπάλληλος γραφείου. Άριστη γνώση της ελληνικής γλώσσας. Τηλεφωνική εξυπηρέτηση."},
   "sales_ops": {"title": "Sales Operations Analyst", "company": "SaaS Co", "location": "Remote - Europe", "work_mode": "remote", "description": "Support the sales team with CRM data."},
   "americas_hr": {"title": "Graduate HR Generalist - Americas", "company": "Canonical", "location": "Home Based - Americas; Home based - EMEA", "description": "HR operations."},
-  "team_manager": {"title": "Business Services Team Manager", "company": "Canonical", "location": "Home based - Worldwide", "description": "Lead the business services team. Organisation and communication."}
+  "team_manager": {"title": "Business Services Team Manager", "company": "Canonical", "location": "Home based - Worldwide", "description": "Lead the business services team. Organisation and communication."},
+  "french_hr": {"title": "Associate HR Services (7 months fixed term- French language preferred )", "company": "Pfizer", "location": "Greece-Thessaloniki Chortiatis", "source": "workday:pfizer",
+    "description": "Support HR services. Able to communicate effectively both in French and English (spoken & written) with colleagues at all levels. MS Office."},
+  "minneapolis_remote": {"title": "Operations Coordinator", "company": "NoGigiddy", "location": "TELECOMMUTE; Minneapolis, Minnesota, United States", "work_mode": "remote", "source": "workable-search", "source_type": "board",
+    "description": "Coordinate projects. Hourly pay of $17-$25/hr. Fully remote."}
 }

@@ -41,9 +41,35 @@ def _low(*parts: str) -> str:
     return " ".join(p or "" for p in parts).lower()
 
 
+def _in_thessaloniki(text_value: str) -> bool:
+    return any(re.search(r"(?<![a-zα-ωά-ώ])" + re.escape(word), text_value) for word in THESSALONIKI)
+
+
+OTHER_LANGUAGES = [
+    "french", "german", "spanish", "italian", "portuguese", "polish", "arabic", "turkish", "russian", "bulgarian", "romanian", "hebrew", "chinese", "mandarin",
+    "japanese", "korean", "swedish", "danish", "norwegian", "finnish", "czech", "hungarian", "serbian", "croatian", "albanian", "ukrainian", "slovak", "hindi",
+]
+
+
+def other_language_required(title: str, body: str) -> Optional[str]:
+    """A language she does not speak, required by the title or a requirement line."""
+    text_value = f"{title}\n{body}".lower()
+    for language in OTHER_LANGUAGES:
+        if re.search(rf"\b{language}\b[^.\n]{{0,30}}(preferred|a plus|an advantage|nice to have|desirable|beneficial|is a bonus)", text_value) and not re.search(
+            rf"(communicate|fluent|fluency|native|proficien|required|must|excellent|business[- ]level|c1|c2|both)[^.\n]{{0,40}}\b{language}\b|\b{language}\b[^.\n]{{0,20}}(required|essential|mandatory|fluent|native)", body.lower()
+        ):
+            continue
+        if re.search(
+            rf"(fluent|fluency|native|proficien\w*|excellent|business[- ]level|c1|c2|communicate effectively|communicate)[^.\n]{{0,40}}\b{language}\b|\b{language}\b[^.\n]{{0,25}}(required|essential|mandatory|fluent|native|speaking|speaker)|{language}[- ]speaking",
+            text_value,
+        ):
+            return language.title()
+    return None
+
+
 COUNTRIES = [
     "philippines", "pakistan", "india", "georgia", "kenya", "nigeria", "south africa", "egypt", "united states", "usa", "canada", "mexico", "colombia", "argentina", "brazil",
-    "chile", "peru", "belize", "costa rica", "new zealand", "australia", "japan", "china", "singapore", "malaysia", "indonesia", "vietnam", "thailand", "united arab emirates",
+    "chile", "peru", "belize", "costa rica", "new zealand", "australia", "japan", "china", "singapore", "malaysia", "indonesia", "vietnam", "thailand", "united arab emirates", "uae",
     "abu dhabi", "dubai", "saudi", "turkey", "israel", "ukraine", "serbia", "north macedonia", "albania", "bulgaria", "romania", "poland", "czech", "hungary", "germany",
     "france", "spain", "portugal", "italy", "netherlands", "belgium", "ireland", "united kingdom", "uk", "sweden", "denmark", "norway", "finland", "austria", "switzerland",
     "malta", "cyprus", "croatia", "slovenia", "slovakia", "lithuania", "latvia", "estonia", "luxembourg",
@@ -61,12 +87,17 @@ def geography(job: Dict) -> Dict:
     mode = (job.get("work_mode") or "").lower()
     remote_words = bool(re.search(r"\bremote\b|telecommute|work from home|home[- ]based|τηλεργασία|εξ αποστάσεως|fully distributed", loc + " " + mode + " " + body[:1500]))
     hybrid = "hybrid" in loc + mode or "υβριδικ" in loc + body[:800]
-    in_thess = any(word in loc for word in THESSALONIKI)
+    in_thess = _in_thessaloniki(loc)
     other_city = next((city for city in OTHER_CITIES if city in loc), None)
     result = {"work_mode": "onsite", "greece_remote": "no", "evidence": "", "thessaloniki": in_thess, "verdict": "ineligible"}
     title_region = REGION_TITLE.search(job.get("title") or "")
     if title_region and not re.search(r"emea|europe|greece|worldwide", (job.get("title") or "").lower()):
         result.update(evidence=f"The title limits it to {title_region.group(1)}.")
+        return result
+    title_low = (job.get("title") or "").lower()
+    title_countries = [c for c in _countries_in(title_low) if c not in ("greece",)]
+    if title_countries and not re.search(r"emea|europe|greece|worldwide|anywhere", title_low):
+        result.update(evidence=f"The title ties it to {title_countries[0].title()}.")
         return result
     if in_thess:
         result.update(work_mode="remote" if mode == "remote" else ("hybrid" if hybrid else "onsite"), greece_remote="onsite", verdict="ok", evidence=job.get("location_raw", "")[:120])
@@ -114,7 +145,7 @@ def geography(job: Dict) -> Dict:
         result.update(evidence=f"On-site in {other_city}", verdict="ineligible")
         return result
     if re.search(r"greece|ελλάδα", loc) or not loc.strip():
-        if any(word in body[:3000] for word in THESSALONIKI):
+        if _in_thessaloniki(body[:3000]):
             result.update(thessaloniki=True, verdict="ok", greece_remote="onsite", evidence="The description names Thessaloniki.")
         elif re.search(r"greece|ελλάδα", loc):
             result.update(verdict="verify", greece_remote="unclear", evidence="Greece, but the city is not stated.")
@@ -233,6 +264,9 @@ def evaluate(job: Dict, *, first_seen: str = "", soft_weights: Optional[Dict] = 
         blockers.append("The ad is in Greek or asks for strong Greek. Her Greek is A2." if greek_posting else "The ad asks for strong Greek. Her Greek is A2.")
     elif geo["greece_remote"] == "onsite" and not english_first and not concepts.get("dutch"):
         unknowns.append("Greek is not mentioned. Ask whether the team works in English.")
+    foreign = other_language_required(title, body)
+    if foreign and not (foreign == "Dutch"):
+        blockers.append(f"The role needs {foreign}. She speaks English and Dutch natively and basic Greek.")
     if concepts.get("driving") and concepts["driving"]["importance"] == "mandatory":
         blockers.append("A driving licence is required and is not on her CVs.")
     if concepts.get("degree_business") and concepts["degree_business"]["importance"] != "preferred":
@@ -290,7 +324,7 @@ def evaluate(job: Dict, *, first_seen: str = "", soft_weights: Optional[Dict] = 
         reasons.append("The workplace runs in English.")
     if concepts.get("dutch"):
         reasons.append("Dutch is asked for. She is a native speaker.")
-    location_fit = {"onsite": 1.0, "confirmed": 0.95, "likely": 0.8, "unclear": 0.5, "no": 0.0}[geo["greece_remote"]]
+    location_fit = {"onsite": 1.0, "confirmed": 0.95, "likely": 0.7, "unclear": 0.5, "no": 0.0}[geo["greece_remote"]]
     coverage = evidence.coverage(matrix) if matrix else 0.55
     education_fit = 0.6 if concepts.get("degree_business") else 1.0
     domain = 0.6
@@ -321,9 +355,9 @@ def evaluate(job: Dict, *, first_seen: str = "", soft_weights: Optional[Dict] = 
         "source_confidence": source_conf, "application_effort": effort, "compensation_quality": pay,
     }
     base = (
-        role_fit * 22 + coverage * 22 + location_fit * 14 + language_fit * 12 + seniority_fit * 12
-        + education_fit * 5 + domain * 6 + source_conf * 4 + effort * 1 + pay * 2
-    )
+        role_fit * 20 + coverage * 20 + location_fit * 18 + language_fit * 12 + seniority_fit * 12
+        + education_fit * 5 + domain * 6 + source_conf * 8 + effort * 1 + pay * 2
+    ) / 1.04
     soft = 0.0
     for key, weight in (soft_weights or {}).items():
         if key.startswith("family:") and key[7:] == family:
@@ -353,10 +387,10 @@ def evaluate(job: Dict, *, first_seen: str = "", soft_weights: Optional[Dict] = 
         eligibility = "VERIFY"
         unknowns.append("Possible scam signal: " + ", ".join(scam))
 
-    hard_blocker = any("strong Greek" in b or "driving" in b for b in blockers)
+    hard_blocker = any("strong Greek" in b or "driving" in b or "The role needs" in b for b in blockers)
     if hard_blocker:
         overall = min(overall, 55)
-    capped = commercial or seniority_fit < 0.5 or virtual or (years is not None and years >= 3)
+    capped = commercial or seniority_fit < 0.5 or virtual or (years is not None and years >= 3) or (geo["greece_remote"] == "likely" and job.get("source_type") == "board")
     if capped:
         overall = min(overall, 73)
     if eligibility == "VERIFY":
