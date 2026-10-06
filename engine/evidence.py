@@ -94,6 +94,8 @@ def match_requirements(body: str, greek_strong: bool) -> List[Dict]:
         for tag in item.get("tags", []):
             evidence_index.setdefault(tag, []).append(item["id"])
     for line in requirement_lines(body):
+        if re.search(r"\b(reporting to|reports to|report to)\b|αναφέρεται σε|^\s*reporting line", line, re.I):
+            continue
         for concept, label, patterns in taxonomy.REQUIREMENT_CONCEPTS:
             if concept in seen or concept == "years":
                 continue
