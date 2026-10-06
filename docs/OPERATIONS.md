@@ -14,6 +14,8 @@ Variable `RESEND_FROM` can override the sender, default `Job radar <jobs@oneball
 ## Schedule
 
 - `radar.yml` runs every 10 minutes and on demand. Each source runs only when its own interval has passed, so core employer boards refresh every 20 minutes.
+- GitHub can delay or skip scheduled runs, especially for a new workflow. If no scheduled run has started for 30 minutes, the last step of each run waits five minutes and dispatches the next one, so the cycle continues without the Mac. When the Mac is on, its server also starts a run if the last cycle is older than 30 minutes.
+- Skywalker refuses GitHub's servers and DYPA often times out from them. While the Mac is awake, `server.py` reads both every 30 minutes and publishes an encrypted feed on the `mac-relay` branch; the cloud run merges it. A relay older than six hours is reported as stale and never closes jobs.
 - Exceptional alerts are sent at most once per job.
 - The digest goes out every third day at 10:00 Europe/Athens, starting 7 October 2026. A late run still sends that day's digest once; a missed digest older than two days is skipped.
 
