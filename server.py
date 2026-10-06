@@ -94,6 +94,18 @@ def sync_once() -> None:
 def syncer() -> None:
     while True:
         sync_once()
+        try:
+            data = crypto.decrypt_json(passphrase(), (CACHE / "payload.enc").read_text())
+            last = data.get("health", {}).get("last_cycle")
+            from datetime import datetime, timezone
+            if last and (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds() > 1800:
+                runs = github("/actions/workflows/radar.yml/runs?status=in_progress&per_page=1").get("workflow_runs", [])
+                queued = github("/actions/workflows/radar.yml/runs?status=queued&per_page=1").get("workflow_runs", [])
+                if not runs and not queued:
+                    github("/actions/workflows/radar.yml/dispatches", "POST", {"ref": "main", "inputs": {"force": "false"}})
+                    STATUS["watchdog"] = time.strftime("%H:%M") + " started a cloud run because the last one was over 30 minutes old"
+        except Exception as error:
+            STATUS["watchdog_error"] = f"{type(error).__name__}: {error}"[:160]
         time.sleep(300)
 
 

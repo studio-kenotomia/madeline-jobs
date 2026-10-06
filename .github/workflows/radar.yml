@@ -17,6 +17,7 @@ permissions:
   pages: write
   id-token: write
   issues: write
+  actions: write
 
 concurrency:
   group: radar
@@ -82,3 +83,26 @@ jobs:
         with:
           path: site
       - uses: actions/deploy-pages@v4
+      - name: Keep the chain alive if GitHub's schedule stalls
+        if: github.event_name != 'issues'
+        run: |
+          python - <<'PY'
+          import json, os, subprocess, time, urllib.request
+          from datetime import datetime, timezone
+          repo, token = os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_TOKEN"]
+          def api(path, method="GET", payload=None):
+              req = urllib.request.Request(f"https://api.github.com/repos/{repo}{path}", method=method, data=json.dumps(payload).encode() if payload is not None else None,
+                  headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "Content-Type": "application/json"})
+              with urllib.request.urlopen(req) as r:
+                  body = r.read().decode(); return json.loads(body) if body else {}
+          runs = api("/actions/workflows/radar.yml/runs?event=schedule&per_page=1").get("workflow_runs", [])
+          last = datetime.fromisoformat(runs[0]["created_at"].replace("Z", "+00:00")) if runs else None
+          stale = last is None or (datetime.now(timezone.utc) - last).total_seconds() > 1800
+          active = [r for r in api("/actions/workflows/radar.yml/runs?status=queued&per_page=5").get("workflow_runs", [])]
+          if stale and not active:
+              time.sleep(300)
+              api("/actions/workflows/radar.yml/dispatches", "POST", {"ref": "main", "inputs": {"force": "false"}})
+              print("Schedule looks stalled; dispatched the next run.")
+          else:
+              print("Schedule is firing; no chain needed.")
+          PY
