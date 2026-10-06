@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Callable, Dict, List
 
 from . import crypto, http
-from .adapters import ats, boards, greek, pages
+from .adapters import ats, boards, greek, pages, search
 
 ROOT = Path(__file__).resolve().parent.parent
 RELAY_URL = "https://raw.githubusercontent.com/studio-kenotomia/madeline-jobs/mac-relay/feed.enc"
@@ -72,7 +72,28 @@ def build() -> List[Dict]:
     add("isea", "iSea careers", 120, lambda ctx: pages.isea(), kind="page")
     add("ekby", "EKBY calls", 180, lambda ctx: pages.html_announcements("ekby", "EKBY / Goulandris", "https://ekby.gr/news/prokirikseis-proskliseis/", "Thermi, Thessaloniki", r"prosklisi|proslipsi|θέσ"), kind="page")
     add("afs", "American Farm School / Perrotis", 180, lambda ctx: pages.html_announcements("afs", "American Farm School", "https://afs.edu.gr/en/human-resources/", "Thessaloniki, Greece", r"opening|position|vacanc|θέση|officer|assistant|coordinator", r"faculty|lecturer|teacher|professor"), kind="page")
+    if search.enabled():
+        add("web-search", "Web search discovery (Brave)", 180, lambda ctx: web_search(ctx), kind="search", note="Search results are verified on the original page before they count.")
     return sources
+
+
+def web_search(ctx: Dict) -> List[Dict]:
+    from .model import job_from_jsonld, jobpostings_from_html
+    offset = int(datetime.now(timezone.utc).timestamp() // 10800)
+    jobs = []
+    for lead in search.brave(limit_queries=6, offset=offset * 6):
+        url = lead.get("url") or ""
+        if not url or not http.public_url(url):
+            continue
+        try:
+            page = http.text(url, timeout=20)
+        except Exception:
+            continue
+        for item in jobpostings_from_html(page)[:1]:
+            job = job_from_jsonld(item, source="web-search", url=url)
+            job["extra"]["found_by_query"] = lead.get("query")
+            jobs.append(job)
+    return jobs
 
 
 MANUAL_WATCHES = [
