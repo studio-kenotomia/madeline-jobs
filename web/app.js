@@ -19,7 +19,7 @@ function ago(iso) {
 export function allJobs() {
   const d = state.data;
   const seen = new Map();
-  for (const list of [...Object.values(d.tiers), d.tracked]) for (const job of list) seen.set(job.id, job);
+  for (const list of [...Object.values(d.tiers), ...Object.values(d.overflow || {}), d.tracked]) for (const job of list) seen.set(job.id, job);
   return [...seen.values()];
 }
 export const findJob = id => allJobs().find(j => j.id === id) || state.data.archive.find(j => j.id === id);
@@ -131,7 +131,9 @@ function viewToday() {
   const visible = list => list.filter(j => !["skipped", "submitted"].includes(localStatus(j.id)));
   const section = (key, title, empty) => {
     const list = visible(d.tiers[key] || []);
-    return `<h2>${title} <span class="count">${list.length}</span></h2>` + (list.length ? list.map(j => card(j)).join("") : `<p class="muted">${empty}</p>`);
+    const more = visible((d.overflow || {})[key] || []);
+    return `<h2>${title} <span class="count">${list.length}${more.length ? " + " + more.length : ""}</span></h2>` + (list.length ? list.map(j => card(j)).join("") : `<p class="muted">${empty}</p>`) +
+      (more.length ? `<p><button data-more="${key}">Show ${more.length} more in ${title.toLowerCase()}</button></p><div class="hidden" id="more-${key}">${more.map(j => card(j)).join("")}</div>` : "");
   };
   const facts = Object.entries(d.facts).filter(([k, v]) => ["role2_end", "travel_weeks", "us_night_hours", "r1_tech_claims"].includes(k) && ["unknown", "unconfirmed"].includes(String(v)));
   const radar = (d.radar || []).slice(0, 3).map(r => `<article class="card"><span class="tier verify">No confirmed opening</span><h3>${esc(r.company)}</h3><p>${esc(r.why)}</p><p class="muted small">${esc(r.angle)} Confidence: ${esc(r.confidence)}.</p><div class="actions"><a class="btn" href="#radar=${encodeURIComponent(r.company)}">Prepare a speculative package</a>${r.url ? `<a class="btn" href="${esc(r.url)}" target="_blank" rel="noopener">Company site</a>` : ""}</div></article>`).join("");
@@ -151,6 +153,7 @@ function viewToday() {
     <div id="stretch" class="hidden">${(d.tiers.stretch || []).map(j => card(j, { compact: true })).join("")}</div>
     <p class="muted small">${why.raw_day} listings read in the last 24 hours. ${dropped} were dropped automatically. <a href="#whynot">See why</a>.</p>`;
   $("#toggle-stretch").onclick = () => $("#stretch").classList.toggle("hidden");
+  document.querySelectorAll("[data-more]").forEach(b => b.onclick = () => { $("#more-" + b.dataset.more).classList.toggle("hidden"); b.remove(); });
   bindCards($("#view"));
 }
 

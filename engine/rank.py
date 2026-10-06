@@ -90,6 +90,10 @@ def geography(job: Dict) -> Dict:
         if excluded and not strong_region:
             result.update(greece_remote="no", evidence=excluded, verdict="ineligible")
             return result
+        bad_region = re.search(r"\b(apac|asia[- ]pacific|asia|americas|north america|latam|latin america|us only|usa only|canada only|anz|oceania)\b", loc)
+        if bad_region and not strong_region and not re.search(r"worldwide|anywhere|global", loc):
+            result.update(greece_remote="no", evidence=f"Remote, limited to {bad_region.group(1).upper() if len(bad_region.group(1)) <= 5 else bad_region.group(1).title()}.", verdict="ineligible")
+            return result
         if region_hit:
             confirmed = bool(re.search(r"worldwide|anywhere|emea|europe|\beu\b|eea|global", region_hit))
             if job.get("source_type") == "board" and not strong_region:

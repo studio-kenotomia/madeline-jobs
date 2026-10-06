@@ -3,12 +3,26 @@
 from __future__ import annotations
 
 import json
+import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Dict, List
 
+from . import crypto, http
 from .adapters import ats, boards, greek, pages
 
 ROOT = Path(__file__).resolve().parent.parent
+RELAY_URL = "https://raw.githubusercontent.com/studio-kenotomia/madeline-jobs/mac-relay/feed.enc"
+
+
+def relay() -> List[Dict]:
+    """Jobs the Mac fetched from sites that refuse GitHub's servers. Stale feeds raise so nothing gets closed."""
+    blob = http.text(RELAY_URL + f"?t={datetime.now().timestamp():.0f}", check_robots=False)
+    feed = crypto.decrypt_json(os.environ.get("DASH_KEY", ""), blob)
+    at = datetime.fromisoformat(feed["at"])
+    if datetime.now(timezone.utc) - at > timedelta(hours=6):
+        raise RuntimeError(f"Mac relay is stale (last update {feed['at'][:16]} UTC). The Mac has been off or asleep.")
+    return feed["jobs"]
 
 
 def companies() -> List[Dict]:
@@ -45,8 +59,10 @@ def build() -> List[Dict]:
     add("weworkremotely", "We Work Remotely", 60, lambda ctx: boards.weworkremotely(), kind="board")
     add("workingnomads", "Working Nomads", 120, lambda ctx: boards.workingnomads(), kind="board")
     add("kariera", "Kariera.gr (office categories)", 40, lambda ctx: greek.kariera(ctx.get("known", set())), kind="board")
-    add("skywalker", "Skywalker.gr", 40, lambda ctx: greek.skywalker(), kind="board", note="Listing pages only. Full ads block automated reading.")
-    add("dypa", "DYPA Hot Jobs (public employment service)", 60, lambda ctx: greek.dypa_hotjobs(), kind="public")
+    if os.environ.get("RADAR_HOST") == "mac":
+        add("skywalker", "Skywalker.gr", 40, lambda ctx: greek.skywalker(), kind="board", note="Listing pages only. Full ads block automated reading.")
+    add("mac-relay", "Mac relay (Skywalker and DYPA, which block GitHub's servers)", 20, lambda ctx: relay(), kind="relay", note="Fresh only while the Mac is on.")
+    add("dypa", "DYPA Hot Jobs (public employment service)", 60, lambda ctx: greek.dypa_hotjobs(), kind="public", note="Slow from GitHub's servers; the Mac relay also reads it.")
     add("diavgeia", "Diavgeia public notices (Thessaloniki universities, CERTH, region, city)", 180, lambda ctx: greek.diavgeia(), kind="public")
     add("cedefop", "Cedefop, EU agency in Thessaloniki", 120, lambda ctx: pages.cedefop(), kind="page")
     add("euraxess", "EURAXESS research jobs in Greece", 180, lambda ctx: pages.euraxess(ctx.get("known", set())), kind="page")

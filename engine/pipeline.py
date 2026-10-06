@@ -441,7 +441,7 @@ def site_payload(state: Dict, now: datetime, cycle: Dict) -> Dict:
     active = [j for j in state["jobs"].values() if j.get("open_status") != "closed" and j.get("application_status") not in ("skipped", "submitted", "rejected", "withdrawn")]
     active.sort(key=lambda j: (-(j.get("analysis") or {}).get("score", 0), j.get("first_seen", "")))
     tiers = {t: [j for j in active if (j.get("analysis") or {}).get("tier") == t] for t in ("exceptional", "apply", "worth", "verify", "stretch")}
-    shown = tiers["exceptional"][:2] + tiers["apply"][:3] + tiers["worth"][:3] + tiers["verify"][:3] + tiers["stretch"][:12]
+    shown = tiers["exceptional"][:12] + tiers["apply"][:13] + tiers["worth"][:13] + tiers["verify"][:13] + tiers["stretch"][:12]
     tracked = [j for j in state["jobs"].values() if j.get("application_status") not in ("none", None)]
     full_ids = {j["id"] for j in shown + tracked}
     archive = [card(j, False) for j in sorted(state["jobs"].values(), key=lambda j: -(j.get("analysis") or {}).get("score", 0)) if j["id"] not in full_ids][:500]
@@ -472,6 +472,7 @@ def site_payload(state: Dict, now: datetime, cycle: Dict) -> Dict:
         "generated_at": now.isoformat(),
         "cycle": cycle,
         "tiers": {k: [card(j, True) for j in v[: {"exceptional": 2, "apply": 3, "worth": 3, "verify": 3, "stretch": 12}[k]]] for k, v in tiers.items()},
+        "overflow": {k: [card(j, True) for j in v[{"exceptional": 2, "apply": 3, "worth": 3, "verify": 3, "stretch": 12}[k]:][:10]] for k, v in tiers.items()},
         "tracked": [card(j, True) for j in tracked],
         "archive": archive,
         "radar": radar_view,

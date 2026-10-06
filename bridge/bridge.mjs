@@ -148,6 +148,7 @@ try {
   await uploadFiles(page);
   await page.evaluate(() => { window.__bridgeFilling = false; }).catch(() => {});
   await banner(page);
+  report.page_submitted = await page.evaluate(() => !!window.__fixtureSubmitted).catch(() => false);
   if (process.env.BRIDGE_SCREENSHOT) await page.screenshot({ path: process.env.BRIDGE_SCREENSHOT, fullPage: false });
 } catch (error) {
   report.notes.push(`Stopped: ${error.message.split("\n")[0]}`);

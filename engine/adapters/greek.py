@@ -91,7 +91,7 @@ def dypa_hotjobs(max_pages: int = 25) -> List[Dict]:
     jobs = []
     for page_number in range(1, max_pages + 1):
         try:
-            page = http.text(f"https://www.dypa.gov.gr/hotjobs?page={page_number}")
+            page = http.text(f"https://www.dypa.gov.gr/hotjobs?page={page_number}", timeout=60)
         except Exception:
             if page_number == 1:
                 raise

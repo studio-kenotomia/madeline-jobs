@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html><body>
+<h1>Fixture application</h1>
+<a href="#" id="open" role="button">Apply</a>
+<form id="f" action="javascript:void(0)">
+  <label for="fn">First Name*</label><input id="fn" required>
+  <label for="ln">Last Name*</label><input id="ln" required>
+  <label for="em">Email*</label><input id="em" type="email" required>
+  <label for="ph">Phone</label><input id="ph">
+  <label for="g">Which gender do you identify as?*</label><select id="g" required><option></option><option>Prefer not to say</option></select>
+  <label for="cv">Resume/CV</label><input id="cv" type="file">
+  <label for="cl">Cover letter</label><input id="cl" type="file">
+  <button type="submit" aria-label="Apply">Submit application</button>
+  <div role="button" aria-label="Apply now" onclick="document.getElementById('f').requestSubmit()">Apply now</div>
+</form>
+<script>
+  document.getElementById("f").addEventListener("submit", () => { window.__fixtureSubmitted = true; });
+</script>
+</body></html>

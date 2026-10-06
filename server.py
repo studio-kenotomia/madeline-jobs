@@ -97,6 +97,41 @@ def syncer() -> None:
         time.sleep(300)
 
 
+def relay_once() -> None:
+    """Fetch the sources that block GitHub's servers and publish them, encrypted, on the mac-relay branch."""
+    import base64
+    os.environ["RADAR_HOST"] = "mac"
+    from engine.adapters import greek
+    jobs, meta = [], {}
+    for name, fn in (("skywalker", greek.skywalker), ("dypa", greek.dypa_hotjobs)):
+        try:
+            found = fn()
+            jobs.extend(found)
+            meta[name] = {"ok": True, "count": len(found)}
+        except Exception as error:
+            meta[name] = {"ok": False, "error": f"{type(error).__name__}: {error}"[:200]}
+    feed = {"at": time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()), "jobs": jobs, "meta": meta}
+    content = crypto.encrypt_json(passphrase(), feed)
+    blob = github("/git/blobs", "POST", {"content": base64.b64encode(content.encode()).decode(), "encoding": "base64"})
+    tree = github("/git/trees", "POST", {"tree": [{"path": "feed.enc", "mode": "100644", "type": "blob", "sha": blob["sha"]}]})
+    commit = github("/git/commits", "POST", {"message": "relay", "tree": tree["sha"], "parents": []})
+    try:
+        github("/git/refs/heads/mac-relay", "PATCH", {"sha": commit["sha"], "force": True})
+    except urllib.error.HTTPError:
+        github("/git/refs", "POST", {"ref": "refs/heads/mac-relay", "sha": commit["sha"]})
+    STATUS["relay"] = {"at": feed["at"], **{k: v.get("count", v.get("error")) for k, v in meta.items()}}
+
+
+def relayer() -> None:
+    time.sleep(20)
+    while True:
+        try:
+            relay_once()
+        except Exception as error:
+            STATUS["relay_error"] = f"{type(error).__name__}: {error}"[:200]
+        time.sleep(1800)
+
+
 def find_job(data, job_id):
     for job in [j for tier in data["tiers"].values() for j in tier] + data.get("tracked", []):
         if job["id"] == job_id:
@@ -215,6 +250,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     threading.Thread(target=syncer, daemon=True).start()
+    threading.Thread(target=relayer, daemon=True).start()
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     print(f"Mac dashboard on http://127.0.0.1:{PORT}", flush=True)
     server.serve_forever()
