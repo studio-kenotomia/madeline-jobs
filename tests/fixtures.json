@@ -1,0 +1,31 @@
+{
+  "canonical_ea": {
+    "title": "Executive Assistant / Corporate Administrator", "company": "Canonical", "location": "Home based - Worldwide", "source": "greenhouse:canonical",
+    "description": "We are hiring Executive Assistants and Corporate Administrators. We value diversity. We are not looking for candidates with extensive experience so much as excellent organisers and communicators. Responsibilities: coordinate monthly reports and schedule meetings and interviews; organise international company events; manage suppliers and stakeholders. What we are looking for: excellent communication skills; a degree in a business or technical subject; ability to travel up to four times a year. During this application process I agree to use only my own words. Plagiarism, the use of AI or other generated content will disqualify my application."
+  },
+  "canonical_travel": {
+    "title": "Travel Operations Specialist", "company": "Canonical", "location": "Home based - EMEA", "source": "greenhouse:canonical",
+    "description": "Ensure smooth travel for colleagues. Excellent organisation and attention to detail. Travel industry experience is valued. A degree in a business or technical subject. Use only your own words; AI-generated content will disqualify you."
+  },
+  "dotsoft_proposal": {
+    "title": "Administrative & Proposal Assistant", "company": "DOTSOFT", "location": "Thessaloniki, Greece", "source": "smartrecruiters:dotsoftsa",
+    "description": "Διοικητική υποστήριξη της ομάδας και προετοιμασία προτάσεων ΕΣΠΑ. Απαραίτητα προσόντα: Πτυχίο ΑΕΙ. Περίπου 2 χρόνια σχετικής εμπειρίας. Πολύ καλή γνώση ελληνικών και καλή γνώση αγγλικών. €1.000–€1.300"
+  },
+  "pinewood_pe": {"title": "Physical Education/Substitution Teacher - Maternity Leave coverage", "company": "Pinewood", "location": "Pylaia, Thessaloniki", "description": "Bachelor in Physical Education."},
+  "isea_pm": {
+    "title": "Project Manager", "company": "iSea", "location": "Thessaloniki, Greece", "source_type": "page",
+    "description": "Required: Degree in Biology or a related field. Valid autonomous diving certification, at least Advance Open Water. Valid driver's license. Good knowledge of GIS."
+  },
+  "dutch_cs": {"title": "Dutch-Speaking Customer Service Agent - Work from Greece", "company": "Mercier", "location": "TELECOMMUTE; Greece", "work_mode": "remote", "description": "Help customers by phone in Dutch."},
+  "us_remote": {"title": "Office Administrator", "company": "Example", "location": "Remote", "work_mode": "remote", "description": "Remote role. Must be based in the United States."},
+  "philippines_remote": {"title": "Executive Assistant", "company": "VA Agency", "location": "TELECOMMUTE; Philippines", "work_mode": "remote", "description": "Support a US founder."},
+  "bare_remote": {"title": "Operations Coordinator", "company": "Distributed Co", "location": "Remote", "work_mode": "remote", "description": "Coordinate schedules, documents and deadlines across the team."},
+  "thess_project": {
+    "title": "Project Coordinator", "company": "Green EU Projects", "location": "Thessaloniki, Greece", "source_type": "ats",
+    "description": "Our international team works in English. You will coordinate EU-funded environmental projects: track deadlines across multiple work packages, keep project documentation and records in order, and liaise with partners across Europe. Requirements: university degree; excellent written and verbal communication in English; strong organisation and attention to detail; MS Office. Interest in sustainability and the environment. Junior candidates welcome."
+  },
+  "greek_secretary": {"title": "Γραμματειακή υποστήριξη", "company": "Ιατρείο", "location": "Θεσσαλονίκη", "description": "Ζητείται υπάλληλος γραφείου. Άριστη γνώση της ελληνικής γλώσσας. Τηλεφωνική εξυπηρέτηση."},
+  "sales_ops": {"title": "Sales Operations Analyst", "company": "SaaS Co", "location": "Remote - Europe", "work_mode": "remote", "description": "Support the sales team with CRM data."},
+  "americas_hr": {"title": "Graduate HR Generalist - Americas", "company": "Canonical", "location": "Home Based - Americas; Home based - EMEA", "description": "HR operations."},
+  "team_manager": {"title": "Business Services Team Manager", "company": "Canonical", "location": "Home based - Worldwide", "description": "Lead the business services team. Organisation and communication."}
+}

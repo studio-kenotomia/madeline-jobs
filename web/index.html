@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; script-src 'self'; base-uri 'none'; form-action 'none'">
+<title>Job radar</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="gate" class="gate">
+  <h1>Job radar</h1>
+  <p class="muted">Private. The list is encrypted and opens with the passphrase.</p>
+  <form id="gate-form">
+    <input id="pass" type="password" autocomplete="current-password" placeholder="Passphrase">
+    <label class="muted small"><input type="checkbox" id="remember" checked> Remember on this device</label>
+    <button class="primary" type="submit">Open</button>
+    <p class="muted" id="gate-msg"></p>
+  </form>
+</div>
+<div id="app" class="hidden">
+  <header class="top">
+    <a href="#" class="brand">Job radar</a>
+    <nav>
+      <a href="#">Today</a>
+      <a href="#search">Search</a>
+      <a href="#radar">Radar</a>
+      <a href="#sources">Sources</a>
+      <a href="#whynot">Why not?</a>
+      <a href="#facts">Facts</a>
+    </nav>
+    <div id="status-line" class="status-line"></div>
+  </header>
+  <main id="view"></main>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
