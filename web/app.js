@@ -11,7 +11,9 @@ function nav(active) {
 }
 
 async function route() {
+  const keyBefore = store.key;
   const params = readHash();
+  if (store.key !== keyBefore) await load().catch(() => {});
   closeSheet();
   const view = $("#view");
   view.scrollTop = 0;
