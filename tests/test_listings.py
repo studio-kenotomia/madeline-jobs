@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from engine import model, rank  # noqa: E402
+from engine import model, rank, taxonomy  # noqa: E402
 from engine.adapters import ats, greek  # noqa: E402
 
 SKYWALKER = """
@@ -49,6 +49,9 @@ class Listings(unittest.TestCase):
         self.assertEqual(job["date_posted"], "2026-09-21")
         self.assertIn("proposals", job["description_text"])
         self.assertFalse(job["description_text"].startswith("{"))
+
+    def test_hotel_front_office_is_not_an_office_job(self):
+        self.assertEqual(taxonomy.family_of("Front Office Manager - Rhodes", "A hotel role.")[1], "hospitality")
 
     def test_older_than_a_year_is_dropped(self):
         now = datetime(2026, 10, 7, tzinfo=timezone.utc)

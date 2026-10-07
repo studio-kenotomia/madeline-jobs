@@ -60,7 +60,7 @@ EXCLUDED_FAMILIES: Dict[str, List[str]] = {
     ],
     "moderation": [r"content (moderat|review)", r"trust (and|&) safety", r"moderator"],
     "hospitality": [
-        r"bartender", r"barista", r"waiter", r"waitress", r"waitstaff", r"\bcook\b", r"\bchef\b", r"housekeep", r"receptionist", r"front desk", r"hotel",
+        r"bartender", r"barista", r"waiter", r"waitress", r"waitstaff", r"\bcook\b", r"\bchef\b", r"housekeep", r"receptionist", r"front desk", r"front office", r"hotel",
         r"σερβιτ", r"μάγειρ", r"καμαριέρ", r"ρεσεψιον", r"μπάρμαν", r"υπάλληλος υποδοχής",
     ],
     "retail": [r"cashier", r"retail (associate|assistant)", r"store (associate|assistant)", r"ταμ(ίας|ία)", r"πωλήτρια", r"εποχική απασχόληση", r"merchandis"],
