@@ -105,4 +105,6 @@ def soft_weights(state: Dict) -> Dict:
             weights[f"company:{company}"] = weights.get(f"company:{company}", 0) + delta
     for family, count in (state.get("learned", {}).get("liked_families") or {}).items():
         weights[f"family:{family}"] = weights.get(f"family:{family}", 0) + min(3.0, count * 0.5)
+    for family, value in (state.get("learned", {}).get("swipe_families") or {}).items():
+        weights[f"family:{family}"] = weights.get(f"family:{family}", 0) + max(-4.0, min(4.0, value))
     return {k: max(-8.0, min(8.0, v)) for k, v in weights.items()}

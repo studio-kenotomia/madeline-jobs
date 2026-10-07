@@ -47,7 +47,7 @@ def workable_search(max_pages: int = 6) -> List[Dict]:
                     url=item.get("url") or "", location=loc, description_text=body, source_job_id=item.get("id") or "",
                     date_posted=item.get("created"), employment_type=item.get("employmentType") or "",
                     work_mode={"on_site": "onsite"}.get(item.get("workplace") or "", item.get("workplace") or ""),
-                    extra={"company_website": company.get("website") or "", "ats": "workable"},
+                    extra={"company_website": company.get("website") or "", "ats": "workable", "logo": company.get("image") or ""},
                 )
                 jobs[job["id"]] = job
             token = data.get("nextPageToken") or ""
@@ -78,7 +78,7 @@ def jobicy() -> List[Dict]:
             job = make_job(
                 source="jobicy", source_type="board", title=item.get("jobTitle") or "", company=item.get("companyName") or "",
                 url=item.get("url") or "", location=item.get("jobGeo") or "", description_html=item.get("jobDescription") or item.get("jobExcerpt") or "",
-                source_job_id=str(item.get("id") or ""), date_posted=item.get("pubDate"), work_mode="remote",
+                source_job_id=str(item.get("id") or ""), date_posted=item.get("pubDate"), work_mode="remote", extra={"logo": item.get("companyLogo") or ""},
                 salary={"min": item.get("salaryMin"), "max": item.get("salaryMax"), "currency": item.get("salaryCurrency"), "period": item.get("salaryPeriod"), "published": True} if item.get("salaryMin") else {},
             )
             jobs[job["id"]] = job
@@ -105,6 +105,7 @@ def remoteok() -> List[Dict]:
             source="remoteok", source_type="board", title=item.get("position") or "", company=item.get("company") or "",
             url=item.get("url") or "", application_url=item.get("apply_url") or "", location=item.get("location") or "",
             description_html=item.get("description") or "", source_job_id=str(item.get("id") or ""), date_posted=item.get("date"), work_mode="remote",
+            extra={"logo": item.get("company_logo") or item.get("logo") or ""},
         ))
     return jobs
 
@@ -124,6 +125,7 @@ def himalayas() -> List[Dict]:
                 description_html=item.get("description") or item.get("excerpt") or "", source_job_id=item.get("guid") or "",
                 date_posted=item.get("pubDate"), valid_through=item.get("expiryDate"), work_mode="remote", remote_regions=regions,
                 salary={"min": item.get("minSalary"), "max": item.get("maxSalary"), "currency": item.get("currency"), "period": item.get("salaryPeriod"), "published": True} if item.get("minSalary") else {},
+                extra={"logo": item.get("companyLogo") or ""},
             )
             jobs[job["id"]] = job
     return list(jobs.values())

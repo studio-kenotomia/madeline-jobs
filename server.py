@@ -61,28 +61,38 @@ def github(path: str, method: str = "GET", payload=None):
         return json.loads(body) if body else {}
 
 
+def _pull(path: str) -> bytes:
+    request = urllib.request.Request(PAGES + path + ("&" if "?" in path else "?") + "t=" + str(int(time.time())), headers={"User-Agent": "job-radar-mac"})
+    return urllib.request.urlopen(request, timeout=30).read()
+
+
 def sync_once() -> None:
     try:
-        payload = urllib.request.urlopen(urllib.request.Request(PAGES + "payload.enc?t=" + str(time.time()), headers={"User-Agent": "job-radar-mac"}), timeout=30).read()
-        (CACHE / "payload.enc").write_bytes(payload)
-        data = crypto.decrypt_json(passphrase(), payload.decode())
-        wanted = {"photo"}
-        for job in [j for tier in data["tiers"].values() for j in tier] + data.get("tracked", []):
-            for name in job.get("has_files", []):
-                wanted.add(f"{job['id']}-{name}")
+        feed_blob = _pull("feed.json")
+        (CACHE / "feed.json").write_bytes(feed_blob)
+        (CACHE / "private.enc").write_bytes(_pull("private.enc"))
+        feed = json.loads(feed_blob)
+        priv = crypto.decrypt_json(passphrase(), (CACHE / "private.enc").read_text())
         (CACHE / "files").mkdir(exist_ok=True)
+        (CACHE / "media").mkdir(exist_ok=True)
+        wanted = {"photo"} | {f"{job_id}-{name}" for job_id, doc in priv["docs"].items() for name in doc.get("files", [])}
         for name in wanted:
-            target = CACHE / "files" / f"{name}.enc"
             try:
-                blob = urllib.request.urlopen(PAGES + f"files/{name}.enc", timeout=30).read()
-                target.write_bytes(blob)
+                (CACHE / "files" / f"{name}.enc").write_bytes(_pull(f"files/{name}.enc"))
             except urllib.error.HTTPError:
                 continue
+        for card in feed["deck"] + feed["removed"]:
+            for field in ("image", "logo"):
+                path = card.get(field) or ""
+                if path.startswith("media/") and not (CACHE / path).exists():
+                    try:
+                        (CACHE / path).write_bytes(_pull(path))
+                    except urllib.error.HTTPError:
+                        continue
         STATUS.update(last_sync=time.strftime("%Y-%m-%d %H:%M"), sync_error="")
-        queue = data.get("health", {}).get("queue", [])
         seen_file = DATA / "queue_seen.json"
         seen = set(json.loads(seen_file.read_text())) if seen_file.exists() else set()
-        for item in queue:
+        for item in priv.get("queue", []):
             if item["id"] not in seen:
                 subprocess.run(["osascript", "-e", 'display notification "An application is queued for the Apply Bridge." with title "Job radar"'], check=False)
                 seen.add(item["id"])
@@ -95,7 +105,7 @@ def syncer() -> None:
     while True:
         sync_once()
         try:
-            data = crypto.decrypt_json(passphrase(), (CACHE / "payload.enc").read_text())
+            data = json.loads((CACHE / "feed.json").read_text())
             last = data.get("health", {}).get("last_cycle")
             from datetime import datetime, timezone
             if last and (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds() > 1800:
@@ -144,36 +154,32 @@ def relayer() -> None:
         time.sleep(1800)
 
 
-def find_job(data, job_id):
-    for job in [j for tier in data["tiers"].values() for j in tier] + data.get("tracked", []):
-        if job["id"] == job_id:
-            return job
-    return None
-
-
 def prepare(job_id: str) -> dict:
     key = passphrase()
-    data = crypto.decrypt_json(key, (CACHE / "payload.enc").read_text())
-    job = find_job(data, job_id)
-    if not job:
-        return {"ok": False, "message": "This job is not in the current short list."}
+    feed = json.loads((CACHE / "feed.json").read_text())
+    priv = crypto.decrypt_json(key, (CACHE / "private.enc").read_text())
+    card = next((c for c in feed["deck"] + feed["removed"] if c["id"] == job_id), None)
+    doc = priv["docs"].get(job_id)
+    if not card or not doc:
+        return {"ok": False, "message": "This job has no prepared documents yet."}
     folder = PACKAGES / job_id
     folder.mkdir(exist_ok=True)
     files = {}
+    stem = priv["profile"]["name"].replace(" ", "_")
     for name, filename in (("cv_pdf", "CV.pdf"), ("cover_pdf", "Cover_letter.pdf")):
         sealed = CACHE / "files" / f"{job_id}-{name}.enc"
         if sealed.exists():
-            stem = data["profile"]["name"].replace(" ", "_")
             path = folder / f"{stem}_{filename}"
             path.write_bytes(crypto.decrypt_bytes(key, sealed.read_text()))
             files["cv" if name == "cv_pdf" else "cover"] = str(path)
     if "cv" not in files:
-        return {"ok": False, "message": "No CV file yet. The next cloud run renders it for short-listed jobs."}
-    profile = data["profile"]
+        return {"ok": False, "message": "No CV file yet. The next cloud run renders it for top matches."}
+    profile = priv["profile"]
     first, _, last = profile["name"].partition(" ")
+    allowed = card.get("ai_policy") != "prohibited"
     package = {
-        "apply_url": job.get("apply_url") or job.get("url"), "ai_policy": job.get("ai_policy"), "allow_cover_text": job.get("ai_policy") != "prohibited",
-        "cover_text": "\n\n".join(p["text"] for p in (job.get("cover_model") or {}).get("paragraphs", [])) if job.get("ai_policy") != "prohibited" else "",
+        "apply_url": card.get("apply_url") or card.get("url"), "ai_policy": card.get("ai_policy"), "allow_cover_text": allowed,
+        "cover_text": "\n\n".join(p["text"] for p in (doc.get("cover_model") or {}).get("paragraphs", [])) if allowed else "",
         "files": files, "fields": {"first_name": first, "last_name": last, "full_name": profile["name"], "email": profile["email"], "phone": profile["phone"], "city": "Thessaloniki, Greece", "linkedin": ""},
     }
     (folder / "package.json").write_text(json.dumps(package))
@@ -186,15 +192,9 @@ def prepare(job_id: str) -> dict:
         if report.exists():
             result = json.loads(report.read_text())
             left = [x for x in result["left_for_review"] if x]
-            message = (f"Prepared, not submitted. Filled {len(result['filled'])} fields, uploaded {len(result['uploaded'])} file(s). "
-                       f"{len(left)} questions and {len(result['skipped_sensitive'])} sensitive fields are waiting for her. " + " ".join(result["notes"]))
-            try:
-                github("/issues", "POST", {"title": f"status {job_id} prepared", "body": "Apply Bridge prepared the form on the Mac. Not submitted."})
-            except Exception:
-                pass
-            return {"ok": True, "message": message, "report": result}
+            return {"ok": True, "report": result, "message": f"Prepared, not submitted. Filled {len(result['filled'])} fields, uploaded {len(result['uploaded'])} file(s). {len(left)} questions and {len(result['skipped_sensitive'])} sensitive fields wait for her. " + " ".join(result["notes"])}
         time.sleep(1)
-    return {"ok": True, "message": "The browser window is open. The bridge is still working; check the window."}
+    return {"ok": True, "message": "The browser window is open on the Mac."}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -207,7 +207,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Content-Security-Policy", "default-src 'self'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; connect-src 'self' blob: data:; frame-ancestors 'none'")
+        self.send_header("Content-Security-Policy", "default-src 'self'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; connect-src 'self' blob: data: https://sekrgfspurktfnryfaif.supabase.co; frame-ancestors 'none'")
         self.end_headers()
         self.wfile.write(body)
 
@@ -224,16 +224,18 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"ok": True, **STATUS})
         if path == "/api/bridge/status":
             return self._json(200, {"online": (ROOT / "bridge" / "node_modules" / "playwright").exists(), **STATUS})
-        if path == "/payload.enc":
-            return self._send(200, (CACHE / "payload.enc").read_bytes(), "text/plain") if (CACHE / "payload.enc").exists() else self._send(404, b"", "text/plain")
-        if path.startswith("/files/"):
-            target = CACHE / "files" / Path(path).name
-            return self._send(200, target.read_bytes(), "text/plain") if target.exists() else self._send(404, b"", "text/plain")
+        if path in ("/feed.json", "/private.enc"):
+            target = CACHE / path.lstrip("/")
+            return self._send(200, target.read_bytes(), "application/json" if path.endswith("json") else "text/plain") if target.exists() else self._send(404, b"", "text/plain")
+        if path.startswith("/files/") or path.startswith("/media/"):
+            target = CACHE / path.split("/")[1] / Path(path).name
+            kind = "image/png" if path.endswith(".png") else "image/jpeg" if path.endswith(".jpg") else "text/plain"
+            return self._send(200, target.read_bytes(), kind) if target.exists() else self._send(404, b"", "text/plain")
         name = "index.html" if path in ("/", "") else path.lstrip("/")
         target = (WEB / name).resolve()
         if WEB.resolve() in target.parents or target == WEB.resolve() / "index.html":
             if target.exists() and target.is_file():
-                kind = {".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css"}.get(target.suffix, "application/octet-stream")
+                kind = {".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".jpg": "image/jpeg", ".png": "image/png", ".json": "application/json", ".webmanifest": "application/manifest+json"}.get(target.suffix, "application/octet-stream")
                 return self._send(200, target.read_bytes(), kind)
         self._send(404, b"Not found", "text/plain")
 

@@ -121,6 +121,9 @@ def geography(job: Dict) -> Dict:
         if excluded and not strong_region:
             result.update(greece_remote="no", evidence=excluded, verdict="ineligible")
             return result
+        if re.fullmatch(r"(remote[,;:\s-]*)?(us|usa|u\.s\.?|united states|uk|canada)( only| based)?\.?", loc.strip()):
+            result.update(greece_remote="no", evidence=f"Remote, limited to {loc.strip().upper()}.", verdict="ineligible")
+            return result
         bad_region = re.search(r"\b(apac|asia[- ]pacific|asia|americas|north america|latam|latin america|us only|usa only|canada only|anz|oceania)\b", loc)
         if bad_region and not strong_region and not re.search(r"worldwide|anywhere|global", loc):
             result.update(greece_remote="no", evidence=f"Remote, limited to {bad_region.group(1).upper() if len(bad_region.group(1)) <= 5 else bad_region.group(1).title()}.", verdict="ineligible")
@@ -205,6 +208,34 @@ def freshness(job: Dict, first_seen: str) -> Dict:
     elif hours_seen is not None:
         score = 0.9 if hours_seen < 48 else 0.6
     return {"badges": badges, "age_days": age_days, "hours_since_seen": hours_seen, "deadline_days": deadline_days, "score": score}
+
+
+def languages(title: str, body: str) -> List[Dict]:
+    """Languages the ad asks for, how strongly, and whether she has them."""
+    text_value = f"{title}\n{body}".lower()
+    found = []
+    checks = [("English", r"\benglish\b|αγγλικ", "native"), ("Greek", r"\bgreek\b|ελληνικ", "A2"), ("Dutch", r"\bdutch\b|nederlands|flemish|ολλανδικ", "native")]
+    checks += [(name.title(), rf"\b{name}\b", "") for name in OTHER_LANGUAGES]
+    for name, pattern, hers in checks:
+        match = re.search(pattern, text_value)
+        if not match:
+            continue
+        window = text_value[max(0, match.start() - 90): match.end() + 90]
+        if name == "Greek":
+            level = "required" if taxonomy.find(taxonomy.GREEK_STRONG, text_value) else "preferred" if taxonomy.find(taxonomy.GREEK_SOFT, text_value) else "mentioned"
+        elif re.search(r"preferred|a plus|advantage|nice to have|desirable|bonus|επιθυμητ|θα εκτιμηθεί", window):
+            level = "preferred"
+        elif re.search(r"fluent|native|excellent|very good|proficien|required|must|essential|business|communicate|άριστη|πολύ καλή|απαραίτητ", window):
+            level = "required"
+        else:
+            level = "mentioned"
+        if name == "Greek" and level == "mentioned" and re.search(r"greek (market|clients|customers|company|government|state)|in greece", window):
+            continue
+        ok = name in ("English", "Dutch") or (name == "Greek" and level != "required")
+        found.append({"name": name, "level": level, "hers": hers or "none", "ok": ok})
+    if not any(item["name"] == "English" for item in found) and re.search(r"[a-z]{4,}", (title + body[:400]).lower()) and not re.search(r"[α-ω]{4,}", (title + body[:400]).lower()):
+        found.insert(0, {"name": "English", "level": "implied", "hers": "native", "ok": True})
+    return found
 
 
 def evaluate(job: Dict, *, first_seen: str = "", soft_weights: Optional[Dict] = None) -> Dict:
@@ -416,7 +447,8 @@ def evaluate(job: Dict, *, first_seen: str = "", soft_weights: Optional[Dict] = 
         "score": overall, "tier": tier, "eligibility": eligibility, "components": components, "reasons": reasons[:5], "gaps": gaps[:4],
         "blockers": blockers[:3], "unknowns": unknowns[:3], "ai_policy": policy, "ai_policy_evidence": policy_evidence,
         "freshness": fresh, "urgency": urgency, "variant": variant(family, low), "greek_gist": taxonomy.gist(body) if job.get("language") == "el" or "ελλην" in low else [],
-        "scam_signals": scam,
+        "scam_signals": scam, "languages": [dict(item, level="required", ok=False) if item["name"] == "Greek" and greek_strong else item for item in languages(title, body)]
+        + ([{"name": "Greek", "level": "required", "hers": "A2", "ok": False}] if greek_strong and not re.search(r"\bgreek\b|ελληνικ", low) else []),
     })
     return result
 

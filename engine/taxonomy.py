@@ -69,7 +69,7 @@ EXCLUDED_FAMILIES: Dict[str, List[str]] = {
         r"engineer", r"developer", r"programmer", r"devops", r"\bsre\b", r"architect", r"data scientist", r"machine learning", r"software",
         r"\bsap\b", r"(it|systems?|network|database|netsuite|jira|salesforce|linux) (administrator|support|admin)", r"consultant",
         r"(salesforce|hubspot|endpoint|intune|defender|encompass|crm|okta|jamf|servicenow|m365|microsoft 365|azure|aws|cloud|platform|zendesk|workday|marketo|revenue systems|sharepoint|office 365|o365|google workspace|lms)\b[^,;]*administrator",
-        r"administrator\s*[-–(]\s*(revenue|systems|it|cloud|crm)", r"\bmatch administrator\b", r"technician", r"\bai trainer\b", r"annotat",
+        r"administrator\s*[-–(]\s*(revenue|systems|it|cloud|crm)", r"\bmatch administrator\b", r"(web|server|network|it|system|linux|windows)\s+(server\s+)?administrator", r"technician", r"\bai trainer\b", r"annotat",
         r"μηχανικ", r"προγραμματιστ", r"ηλεκτρολόγ", r"ψυκτικ", r"υδραυλικ", r"τεχνικ(ός|ού) ",
     ],
     "unpaid": [r"volunteer", r"unpaid", r"εθελοντ", r"internship \(unpaid\)"],

@@ -1,0 +1,26 @@
+{
+  "thessaloniki": {
+    "title": "White Tower in Thessaloniki.jpg",
+    "author": "Hermann Hammer",
+    "license": "CC BY-SA 4.0",
+    "source": "https://commons.wikimedia.org/wiki/File:White_Tower_in_Thessaloniki.jpg"
+  },
+  "thessaloniki-square": {
+    "title": "Thessaloniki Aristotelous Square 09.jpg",
+    "author": "მარიამ ლაბაძე",
+    "license": "CC BY-SA 4.0",
+    "source": "https://commons.wikimedia.org/wiki/File:Thessaloniki_Aristotelous_Square_09.jpg"
+  },
+  "greece": {
+    "title": "20101024 Acropolis panoramic view from Areopagus hill Athens Greece.jpg",
+    "author": "Ggia",
+    "license": "CC BY-SA 3.0",
+    "source": "https://commons.wikimedia.org/wiki/File:20101024_Acropolis_panoramic_view_from_Areopagus_hill_Athens_Greece.jpg"
+  },
+  "remote": {
+    "title": "Europe night.png",
+    "author": "Craig Mayhew and Robert Simmon from data provided by Christopher Elvidge of the ",
+    "license": "Public domain",
+    "source": "https://commons.wikimedia.org/wiki/File:Europe_night.png"
+  }
+}

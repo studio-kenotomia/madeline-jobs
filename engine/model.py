@@ -190,6 +190,12 @@ def job_from_jsonld(item: Dict, *, source: str, url: str, company: str = "") -> 
             }
     remote = jsonld_remote(item)
     mode = "remote" if str(item.get("jobLocationType") or "").upper() == "TELECOMMUTE" else ""
+    logo = org.get("logo") if isinstance(org, dict) else ""
+    if isinstance(logo, dict):
+        logo = logo.get("url") or ""
+    company_url = (org.get("sameAs") or org.get("url") or "") if isinstance(org, dict) else ""
+    if isinstance(company_url, list):
+        company_url = company_url[0] if company_url else ""
     return make_job(
         source=source,
         source_type="jsonld",
@@ -205,4 +211,5 @@ def job_from_jsonld(item: Dict, *, source: str, url: str, company: str = "") -> 
         work_mode=mode,
         remote_regions=remote,
         salary=salary,
+        extra={"logo": logo or "", "company_url": company_url or ""},
     )

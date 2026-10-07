@@ -70,10 +70,11 @@ def skywalker() -> List[Dict]:
             company = re.search(r'/profile/etairias/[^/]+/([^"]+)"', block)
             text_value = strip_html(block)
             mode = "remote" if "Εξ αποστάσεως" in text_value or "remote" in text_value.lower() else "hybrid" if "Υβριδικ" in text_value else ""
+            logo = re.search(r'<img[^>]+src="(https://www\.skywalker\.gr/storage/clients/logos/[^"]+)"', block)
             job = make_job(
                 source="skywalker", source_type="board", title=title, company=(company.group(1).replace("-", " ").title() if company else ""),
                 url=f"https://www.skywalker.gr/el/aggelia-ergasias/{ad_id}/{urllib.parse.quote(slug)}", location=_location_hint(text_value),
-                description_text=text_value[:1500], source_job_id=ad_id, work_mode=mode, extra={"detail": "listing only; the site blocks automated reads of full ads"},
+                description_text=text_value[:1500], source_job_id=ad_id, work_mode=mode, extra={"detail": "listing only; the site blocks automated reads of full ads", "logo": logo.group(1) if logo else ""},
             )
             jobs[job["id"]] = job
     return list(jobs.values())

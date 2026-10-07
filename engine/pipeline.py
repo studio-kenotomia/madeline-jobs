@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from . import crypto, documents, evidence, http, inbox, model, notify, rank, registry
+from . import crypto, documents, evidence, http, inbox, media, model, notify, rank, recheck, registry, sync
 from .adapters import ats, greek, pages, radar as radar_signals, search
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -418,85 +418,154 @@ def process_imports(state: Dict, now: datetime, results: Dict[str, Dict]) -> Non
         results["manual-import"] = {"jobs": jobs, "error": None}
 
 
-def site_payload(state: Dict, now: datetime, cycle: Dict) -> Dict:
-    def card(job: Dict, full: bool) -> Dict:
-        a = job.get("analysis") or {}
-        out = {
-            "id": job["id"], "title": job["title"], "company": job["company"], "location": job.get("location_raw"), "url": job.get("canonical_url"),
-            "apply_url": job.get("application_url") or job.get("canonical_url"), "source": job.get("source"), "source_type": job.get("source_type"),
-            "score": a.get("score"), "tier": a.get("tier"), "eligibility": a.get("eligibility"), "reasons": a.get("reasons", []), "gaps": a.get("gaps", []),
-            "blockers": a.get("blockers", []), "unknowns": a.get("unknowns", []), "badges": a.get("badges", []), "urgency": a.get("urgency"),
-            "greece_remote": (a.get("geo") or {}).get("greece_remote"), "remote_evidence": (a.get("geo") or {}).get("evidence"), "work_mode": (a.get("geo") or {}).get("work_mode"),
-            "posted": job.get("date_posted"), "first_seen": job.get("first_seen"), "deadline": job.get("valid_through"), "salary": job.get("salary") or {},
-            "ai_policy": a.get("ai_policy"), "ai_policy_evidence": a.get("ai_policy_evidence"), "status": job.get("application_status"), "open_status": job.get("open_status"),
-            "doc_status": job.get("doc_status"), "family": a.get("family"), "language": job.get("language"), "secondary_sources": job.get("secondary_sources", [])[:4],
-        }
-        if full:
-            out.update({
-                "components": a.get("components"), "matrix": a.get("matrix", []), "greek_gist": a.get("greek_gist", []), "description": (job.get("description_text") or "")[:12000],
-                "cv_model": job.get("cv_model"), "cv_model_2": job.get("cv_model_2"), "cover_model": job.get("cover_model"), "lint": job.get("lint", []), "frozen": bool(job.get("frozen")),
-                "versions": job.get("versions", [])[-3:], "scam_signals": a.get("scam_signals", []), "has_files": job.get("rendered_files", []),
-            })
-        return out
+TIER_ORDER = {"exceptional": 0, "apply": 1, "worth": 2, "verify": 3, "stretch": 4, "archive": 5}
+TIER_LABEL = {"exceptional": "Exceptional match", "apply": "Highly recommended", "worth": "Worth a look", "verify": "Check the location", "stretch": "Long shot", "archive": "Low fit"}
 
-    active = [j for j in state["jobs"].values() if j.get("open_status") != "closed" and j.get("application_status") not in ("skipped", "submitted", "rejected", "withdrawn")]
-    active.sort(key=lambda j: (-(j.get("analysis") or {}).get("score", 0), j.get("first_seen", "")))
-    tiers = {t: [j for j in active if (j.get("analysis") or {}).get("tier") == t] for t in ("exceptional", "apply", "worth", "verify", "stretch")}
-    shown = tiers["exceptional"][:12] + tiers["apply"][:13] + tiers["worth"][:13] + tiers["verify"][:13] + tiers["stretch"][:12]
-    tracked = [j for j in state["jobs"].values() if j.get("application_status") not in ("none", None)]
-    full_ids = {j["id"] for j in shown + tracked}
-    archive = [card(j, False) for j in sorted(state["jobs"].values(), key=lambda j: -(j.get("analysis") or {}).get("score", 0)) if j["id"] not in full_ids][:500]
-    last_runs = state["runs"][-72:]
+
+def _sanitizer():
+    data = evidence.profile()
+    terms = []
+    for role in data["experience"]:
+        terms.append((role["employer"], "her previous employer"))
+    for item in data["education"]:
+        terms.append((item["credential"], "her degree"))
+        terms.append((item["credential"].split(" ", 1)[-1], "her field"))
+        terms.append((item["school"], "her university"))
+    identity = data["identity"]
+    terms += [(identity["name"], "her"), (identity.get("last_name", ""), ""), (identity.get("email", ""), ""), (identity.get("phone", ""), "")]
+    terms = [(a, b) for a, b in terms if a and len(a) > 2]
+    terms.sort(key=lambda pair: -len(pair[0]))
+
+    def clean(text_value):
+        if not isinstance(text_value, str):
+            return text_value
+        text_value = re.sub(r"Her degrees are [^.]+\.", "Her degrees are in other fields.", text_value)
+        for raw, replacement in terms:
+            text_value = re.sub(re.escape(raw), replacement, text_value, flags=re.I)
+        return text_value
+    return clean
+
+
+def _listing_status(job: Dict, now: datetime) -> Dict:
+    if job.get("open_status") == "closed":
+        reason = job.get("closed_reason") or "No longer listed."
+        label = "Deadline passed" if "Deadline" in reason else "Listing removed"
+        return {"status": "removed", "label": label, "note": reason, "at": job.get("closed_at")}
+    if job.get("open_status") == "stale":
+        return {"status": "stale", "label": "Not reconfirmed", "note": "Its source has not shown it for a few days.", "at": job.get("last_seen")}
+    versions = job.get("versions") or []
+    if versions and job.get("last_changed") and now - datetime.fromisoformat(job["last_changed"]) < timedelta(days=4):
+        last = versions[-1]
+        changed = [name for name, old, new in (("title", last.get("title"), job.get("title")), ("location", last.get("location"), job.get("location_raw")), ("deadline", last.get("valid_through"), job.get("valid_through"))) if old != new]
+        return {"status": "updated", "label": "Updated", "note": "Changed: " + (", ".join(changed) if changed else "description") + ".", "at": job["last_changed"]}
+    return {"status": "open", "label": "Open", "note": "Seen on its source " + (job.get("last_seen") or "")[:16].replace("T", " ") + " UTC.", "at": job.get("last_seen")}
+
+
+def _unique_places(raw: str) -> str:
+    seen, places = set(), []
+    for place in (p.strip() for p in raw.split(";")):
+        if place and place.lower() not in seen:
+            seen.add(place.lower())
+            places.append(place)
+    return "; ".join(places)
+
+
+def public_card(state: Dict, job: Dict, now: datetime, clean) -> Dict:
+    a = job.get("analysis") or {}
+    geo = a.get("geo") or {}
+    pictures = media.for_job(state, job)
+    status = _listing_status(job, now)
+    salary = job.get("salary") or {}
+    location = _unique_places(job.get("location_raw") or "")
+    city = "Thessaloniki" if geo.get("thessaloniki") or geo.get("greece_remote") == "onsite" else ("Remote" if geo.get("work_mode") == "remote" else location.split(",")[0][:40])
+    highlights = [{"label": row["label"], "match": row["match"], "importance": row["importance"]} for row in a.get("matrix", [])[:12]]
+    return {
+        "id": job["id"], "title": job["title"], "company": job["company"], "location": location[:120], "city": city, "work_mode": geo.get("work_mode") or job.get("work_mode") or "",
+        "greece_remote": geo.get("greece_remote"), "remote_note": clean(geo.get("evidence") or ""), "posted": job.get("date_posted"), "first_seen": job.get("first_seen"),
+        "last_seen": job.get("last_seen"), "last_changed": job.get("last_changed"), "deadline": job.get("valid_through"), "employment_type": job.get("employment_type") or "",
+        "salary": salary if salary.get("published") and salary.get("min") else None, "applicants": job.get("applicants"),
+        "languages": a.get("languages", []), "listing": status, "tier": a.get("tier"), "tier_label": TIER_LABEL.get(a.get("tier"), ""), "score": a.get("score"),
+        "reasons": [clean(r) for r in a.get("reasons", [])], "gaps": [clean(g) for g in a.get("gaps", [])], "blockers": [clean(b) for b in a.get("blockers", [])],
+        "unknowns": [clean(u) for u in a.get("unknowns", [])], "highlights": highlights, "badges": a.get("badges", []), "urgency": a.get("urgency"), "family": a.get("family"),
+        "ai_policy": a.get("ai_policy"), "description": (job.get("description_text") or "")[:5000], "language": job.get("language"), "greek_gist": a.get("greek_gist", []),
+        "url": job.get("canonical_url"), "apply_url": job.get("application_url") or job.get("canonical_url"), "source": job.get("source"), "source_type": job.get("source_type"),
+        "also_seen": len(job.get("secondary_sources", [])), "changes": len(job.get("versions") or []), "image": pictures["image"], "image_kind": pictures["image_kind"],
+        "logo": pictures["logo"], "art": pictures["art"], "has_docs": bool(job.get("cv_model")), "files": job.get("rendered_files", []), "components": a.get("components"),
+        "scam": a.get("scam_signals", []),
+    }
+
+
+def public_feed(state: Dict, now: datetime, cycle: Dict) -> Dict:
+    clean = _sanitizer()
+    open_jobs = [j for j in state["jobs"].values() if j.get("open_status") != "closed" and (j.get("analysis") or {}).get("tier") not in (None, "archive")]
+    open_jobs.sort(key=lambda j: (TIER_ORDER.get(j["analysis"]["tier"], 9), -j["analysis"].get("score", 0), -(datetime.fromisoformat(j["first_seen"]).timestamp())))
+    deck = [public_card(state, j, now, clean) for j in open_jobs[:260]]
+    removed_cutoff = (now - timedelta(days=30)).isoformat()
+    removed = [public_card(state, j, now, clean) for j in state["jobs"].values() if j.get("open_status") == "closed" and (j.get("closed_at") or "") > removed_cutoff and (j.get("analysis") or {}).get("tier") not in ("archive", None)]
+    for card_item in removed:
+        card_item["description"] = card_item["description"][:800]
     day_ago = (now - timedelta(hours=24)).isoformat()
     day_runs = [r for r in state["runs"] if r.get("at", "") > day_ago]
     sources_view = []
     for source in registry.build():
         h = state["sources"].get(source["id"], {})
         sources_view.append({"id": source["id"], "label": source["label"], "kind": source["kind"], "status": h.get("status", "pending"), "last_success": h.get("last_success"),
-                             "last_attempt": h.get("last_attempt"), "items": h.get("items"), "error": h.get("error"), "warning": h.get("warning"), "next_run": h.get("next_run"),
-                             "interval": source["interval"], "note": source.get("note", ""), "duration": h.get("duration")})
-    healthy = sum(1 for s in sources_view if s["status"] == "healthy")
-    prefs = dict(evidence.profile()["preferences"])
+                             "items": h.get("items"), "error": h.get("error"), "warning": h.get("warning"), "next_run": h.get("next_run"), "interval": source["interval"], "note": source.get("note", "")})
+    return {
+        "generated_at": now.isoformat(),
+        "deck": deck,
+        "removed": removed,
+        "counts": {t: sum(1 for c in deck if c["tier"] == t) for t in TIER_ORDER},
+        "radar": [{k: clean(v) if isinstance(v, str) else ([clean(s) for s in v] if isinstance(v, list) else v) for k, v in item.items() if k not in ("cv_model", "cover_model")} for item in state["radar"]],
+        "sources": sources_view,
+        "manual": registry.MANUAL_WATCHES,
+        "health": {"healthy": sum(1 for s in sources_view if s["status"] == "healthy"), "total": len(sources_view), "last_cycle": state["runs"][-1]["at"] if state["runs"] else cycle["at"],
+                   "next_digest": notify.next_digest(now, state["digests"]), "email": notify.configured(), "search_api": search.enabled(), "relay": (state["sources"].get("mac-relay") or {}).get("last_success")},
+        "why_not": {"day": dict(sum((Counter(r.get("rejections", {})) for r in day_runs), Counter())), "raw_day": sum(r.get("raw", 0) for r in day_runs), "examples": state["rejected_examples"][-50:]},
+        "cycle": {k: cycle.get(k) for k in ("at", "raw", "new", "ranked", "duration")},
+        "credits": json.loads((ROOT / "web" / "art" / "credits.json").read_text()) if (ROOT / "web" / "art" / "credits.json").exists() else {},
+    }
+
+
+def private_payload(state: Dict, now: datetime) -> Dict:
+    data = evidence.profile()
+    prefs = dict(data["preferences"])
     prefs.update(state.get("confirmations", {}))
-    radar_view = []
+    docs = {}
+    for job in state["jobs"].values():
+        if not job.get("cv_model"):
+            continue
+        source = job.get("frozen") or job
+        docs[job["id"]] = {"cv_model": source.get("cv_model"), "cv_model_2": job.get("cv_model_2"), "cover_model": source.get("cover_model"), "lint": job.get("lint", []),
+                           "matrix": (job.get("analysis") or {}).get("matrix", []), "frozen": bool(job.get("frozen")), "files": job.get("rendered_files", [])}
+    radar_docs = {}
     for item in state["radar"]:
         pseudo_job = {"title": "a junior project, documentation or administrative role", "company": item["company"], "description_text": item["angle"], "id": "radar"}
         family = "environment" if re.search(r"environment|grant|project", item["angle"], re.I) else "education_admin" if "student" in item["angle"] else "mobility" if "immigration" in item["angle"].lower() else "operations"
         pseudo = {"variant": family, "matrix": [], "geo": {"greece_remote": "onsite"}, "ai_policy": "unknown"}
         cover = documents.cover_model(pseudo_job, pseudo)
-        cover["paragraphs"][0]["text"] = (
-            f"I am writing to ask whether {item['company']} expects to need help with {item['angle'].split('.')[0].lower()}. "
-            "I could not find a matching advertised vacancy, so I am sending this speculatively and will not follow up repeatedly."
-        )
-        radar_view.append({**item, "cv_model": documents.cv_model(pseudo_job, pseudo), "cover_model": cover})
+        cover["paragraphs"][0]["text"] = (f"I am writing to ask whether {item['company']} expects to need help with {item['angle'].split('.')[0].lower()}. "
+                                          "I could not find a matching advertised vacancy, so I am sending this speculatively.")
+        radar_docs[item["company"]] = {"cv_model": documents.cv_model(pseudo_job, pseudo), "cover_model": cover}
+    base_job = {"title": "", "company": "", "description_text": "", "id": "base"}
+    base = {"cv_model": documents.cv_model(base_job, {"variant": "operations", "matrix": []}), "cv_model_2": documents.cv_model(base_job, {"variant": "operations", "matrix": []}, pages=2)}
     return {
         "generated_at": now.isoformat(),
-        "cycle": cycle,
-        "tiers": {k: [card(j, True) for j in v[: {"exceptional": 2, "apply": 3, "worth": 3, "verify": 3, "stretch": 12}[k]]] for k, v in tiers.items()},
-        "overflow": {k: [card(j, True) for j in v[{"exceptional": 2, "apply": 3, "worth": 3, "verify": 3, "stretch": 12}[k]:][:10]] for k, v in tiers.items()},
-        "tracked": [card(j, True) for j in tracked],
-        "archive": archive,
-        "radar": radar_view,
-        "sources": sources_view,
-        "manual": registry.MANUAL_WATCHES,
-        "health": {"healthy": healthy, "total": len(sources_view), "last_cycle": state["runs"][-1]["at"] if state["runs"] else None,
-                   "next_digest": notify.next_digest(now, state["digests"]), "email": notify.configured(), "search_api": search.enabled(),
-                   "bridge": state.get("bridge", {}), "queue": state.get("queue", [])},
-        "why_not": {"day": dict(sum((Counter(r.get("rejections", {})) for r in day_runs), Counter())), "raw_day": sum(r.get("raw", 0) for r in day_runs),
-                    "ranked_day": sum(r.get("ranked", 0) for r in day_runs), "examples": state["rejected_examples"][-60:]},
-        "runs": last_runs[-30:],
+        "profile": {"name": data["identity"]["name"], "first_name": data["identity"].get("first_name"), "email": data["identity"]["email"], "phone": data["identity"]["phone"],
+                    "evidence": data["evidence"], "experience": [{k: r.get(k) for k in ("id", "employer", "title", "dates")} for r in data["experience"]],
+                    "education": [{k: e.get(k) for k in ("credential", "school", "dates")} for e in data["education"]]},
         "facts": prefs,
-        "profile": {"name": evidence.profile()["identity"]["name"], "email": evidence.profile()["identity"]["email"], "phone": evidence.profile()["identity"]["phone"],
-                    "phone_confirmed": evidence.profile()["identity"].get("phone_confirmed", False), "evidence": evidence.profile()["evidence"],
-                    "experience": [{k: r.get(k) for k in ("id", "employer", "title", "dates")} for r in evidence.profile()["experience"]]},
-        "companies": sorted([{"name": n["name"], "domain": n.get("domain"), "thessaloniki": n.get("thessaloniki"), "signals": n.get("radar_signals", []), "history": len(n.get("history", [])), "ats": n.get("ats") or (n.get("ats_detected") or [{}])[0].get("ats") if n.get("ats_detected") else n.get("ats")} for n in state["companies"].values()], key=lambda n: (-(len(n["signals"])), n["name"]))[:200],
-        "digests": state["digests"][-5:],
-        "alerts": list(state["alerts"].values())[-10:],
+        "docs": docs,
+        "radar_docs": radar_docs,
+        "base": base,
         "templates": {k: v["label"] for k, v in documents.TEMPLATES.items()},
+        "sync": {"url": sync.ENDPOINT, "token": sync.token()},
+        "queue": state.get("queue", []),
     }
 
 
-def write_site(out: Path, key: str, state: Dict, now: datetime, cycle: Dict) -> None:
+def write_site(out: Path, key: str, state: Dict, now: datetime, cycle: Dict, media_dir: Path) -> None:
+    import shutil
     out.mkdir(parents=True, exist_ok=True)
     files = out / "files"
     files.mkdir(exist_ok=True)
@@ -516,18 +585,31 @@ def write_site(out: Path, key: str, state: Dict, now: datetime, cycle: Dict) -> 
             if blob:
                 (files / f"{job['id']}-{name}.enc").write_text(crypto.encrypt_bytes(key, blob))
                 job["rendered_files"].append(name)
-    (out / "payload.enc").write_text(crypto.encrypt_json(key, site_payload(state, now, cycle)))
+    if media_dir.exists():
+        target = out / "media"
+        target.mkdir(exist_ok=True)
+        for path in media_dir.iterdir():
+            if path.is_file():
+                shutil.copy2(path, target / path.name)
+    (out / "feed.json").write_text(json.dumps(public_feed(state, now, cycle), ensure_ascii=False, separators=(",", ":")))
+    (out / "private.enc").write_text(crypto.encrypt_json(key, private_payload(state, now)))
 
 
-def run(*, state_path: Path, site_out: Optional[Path], key: str, primary: bool, mode: str = "full", only: Optional[List[str]] = None, force: bool = False) -> Dict:
+def run(*, state_path: Path, site_out: Optional[Path], key: str, primary: bool, mode: str = "full", only: Optional[List[str]] = None, force: bool = False, media_dir: Optional[Path] = None) -> Dict:
     started = time.time()
     now = utcnow()
+    media_dir = media_dir or (ROOT / "media")
     state = load_state(state_path, key)
     migrated = migrate_sqlite(state, ROOT / "data" / "jobs.sqlite")
     for command in inbox.pending():
         command["at"] = now.isoformat()
         note = inbox.apply(state, command)
         inbox.close(command["number"], note)
+    synced = {}
+    try:
+        synced = sync.apply(state, sync.pull())
+    except Exception as error:
+        synced = {"error": f"{type(error).__name__}: {error}"[:160]}
     if state.get("confirmations"):
         overrides = ROOT / "data" / "confirmations.json"
         overrides.parent.mkdir(exist_ok=True)
@@ -543,16 +625,26 @@ def run(*, state_path: Path, site_out: Optional[Path], key: str, primary: bool, 
     raw = sum(len(r["jobs"]) for r in results.values())
     new_ids = merge(state, results, now, rejections)
     expire(state, now)
+    rechecked = recheck.check(state, now) if mode == "full" else {}
     rerank(state, now)
     run_radar = mode == "full" and (not state.get("radar_meta") or now - datetime.fromisoformat(state["radar_meta"].get("at", "2000-01-01T00:00:00+00:00")) > timedelta(hours=20))
     update_companies(state, now, run_radar)
     build_documents(state, now)
+    pictured = {}
+    if mode == "full":
+        deck_jobs = [j for j in state["jobs"].values() if j.get("open_status") != "closed" and (j.get("analysis") or {}).get("tier") not in (None, "archive")]
+        try:
+            pictured = media.refresh(state, deck_jobs, media_dir, now)
+            pictured["pruned"] = media.prune(state, media_dir)
+        except Exception as error:
+            pictured = {"error": f"{type(error).__name__}: {error}"[:160]}
     mail_log = notify_cycle(state, now, new_ids, primary) if mode == "full" else []
     ranked = sum(1 for j in state["jobs"].values() if (j.get("analysis") or {}).get("tier") in VISIBLE)
     cycle = {"at": now.isoformat(), "mode": mode, "sources": [s["id"] for s in chosen], "raw": raw, "new": len(new_ids), "ranked": ranked,
-             "rejections": dict(rejections), "duration": round(time.time() - started, 1), "mail": mail_log, "migrated": migrated}
+             "rejections": dict(rejections), "duration": round(time.time() - started, 1), "mail": mail_log, "migrated": migrated,
+             "synced": synced, "rechecked": rechecked, "media": pictured}
     state["runs"] = (state["runs"] + [cycle])[-300:]
     if site_out:
-        write_site(site_out, key, state, now, cycle)
+        write_site(site_out, key, state, now, cycle, media_dir)
     save_state(state_path, key, state)
     return cycle

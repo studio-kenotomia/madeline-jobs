@@ -22,6 +22,15 @@ RECIPIENTS = [r.strip() for r in os.environ.get("ALERT_TO", "").split(",") if r.
 ANCHOR = date(2026, 10, 7)
 
 
+def link(job_id: str = "") -> str:
+    """Deep link that opens the job card and unlocks her documents on that phone."""
+    key = os.environ.get("DASH_KEY", "")
+    parts = [f"job={job_id}"] if job_id else []
+    if key:
+        parts.append(f"k={key}")
+    return DASHBOARD + ("#" + "&".join(parts) if parts else "")
+
+
 def configured() -> bool:
     return bool(os.environ.get("RESEND_API_KEY"))
 
@@ -95,7 +104,7 @@ def _job_block(job: Dict, rank_line: str) -> str:
 <ul style="margin:8px 0 0;padding-left:18px">{reasons}</ul>
 <ul style="margin:4px 0 0;padding-left:18px;color:#8a3d12">{gaps}</ul>
 <div style="font-size:14px;color:#444;margin-top:6px">{escape(docs)}. {escape(friction)}</div>
-<div style="margin-top:10px"><a href="{DASHBOARD}#job={job['id']}" style="background:#1c1915;color:#fff;padding:8px 12px;border-radius:8px;text-decoration:none">Open in dashboard</a>
+<div style="margin-top:10px"><a href="{link(job['id'])}" style="background:#e94f6a;color:#fff;padding:10px 14px;border-radius:999px;text-decoration:none;font-weight:600">Open the card</a>
 &nbsp;<a href="{escape(job.get('application_url') or job.get('canonical_url') or '')}" style="color:#1f4e79">Original listing</a></div></div>"""
 
 
@@ -108,7 +117,7 @@ def exceptional_email(job: Dict) -> Dict:
 <p>One new role clears every bar: right city or Greece-friendly remote, right level, strong evidence, no blocker.</p>
 {_job_block(job, f"{a['score']}/100 · Exceptional")}
 <p style="color:#5e574e;font-size:13px">Nothing has been submitted. Review the CV, then apply from the employer's page.</p></div>"""
-    text_body = f"{subject}\n\n{job['company']} · {job.get('location_raw', '')}\n" + "\n".join("- " + r for r in a.get("reasons", [])[:3]) + f"\n\n{DASHBOARD}#job={job['id']}"
+    text_body = f"{subject}\n\n{job['company']} · {job.get('location_raw', '')}\n" + "\n".join("- " + r for r in a.get("reasons", [])[:3]) + f"\n\n{link(job['id'])}"
     return {"subject": subject, "html": html_body, "text": text_body}
 
 
@@ -129,6 +138,6 @@ def digest_email(best: List[Dict], radar: List[Dict], stats: Dict, since: str) -
     html_body = f"""<div style="font-family:-apple-system,Segoe UI,sans-serif;max-width:640px;color:#1c1915">
 {''.join(blocks) or '<p>No new role was strong enough to recommend. The search kept running the whole time.</p>'}
 <h2 style='font-size:16px'>Ignored noise</h2><p style="color:#5e574e">{escape(noise)}</p>
-<p><a href="{DASHBOARD}">Open the dashboard</a></p></div>"""
-    text_lines = [subject, ""] + [f"- {j['title']} — {j['company']} ({j['analysis']['score']}/100) {DASHBOARD}#job={j['id']}" for j in best[:3]] + ["", noise]
+<p><a href="{link()}">Open the job app</a></p></div>"""
+    text_lines = [subject, ""] + [f"- {j['title']} — {j['company']} ({j['analysis']['score']}/100) {link(j['id'])}" for j in best[:3]] + ["", noise]
     return {"subject": subject, "html": html_body, "text": "\n".join(text_lines)}

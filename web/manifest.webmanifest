@@ -1,0 +1,16 @@
+{
+  "name": "Job radar",
+  "short_name": "Jobs",
+  "description": "Swipe through office jobs in Thessaloniki and remote roles that allow Greece.",
+  "start_url": "./#discover",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f6f3ef",
+  "theme_color": "#f6f3ef",
+  "icons": [
+    {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}

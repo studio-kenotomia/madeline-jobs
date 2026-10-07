@@ -144,6 +144,7 @@ def cover_model(job: Dict, analysis: Dict) -> Dict:
         "msc_gis": "My MSc included academic GIS work in QGIS.",
         "skill_reports": "My studies involved regular desk research and report writing.",
     }
+    named = set()
     for item in picks:
         if item["id"] in academic:
             sentences.append(academic[item["id"]])
@@ -151,9 +152,14 @@ def cover_model(job: Dict, analysis: Dict) -> Dict:
         role = next((r for r in data["experience"] if r["id"] == item["parent"]), None)
         if not role:
             continue
-        where = f"At {role['employer']}, as {role['title']}," if re.search(r"sales", role["title"], re.I) else f"At {role['employer']}"
         fact = item["fact"].rstrip(".")
-        sentences.append(f"{where} I {fact[0].lower() + fact[1:]}.")
+        fact = fact[0].lower() + fact[1:]
+        if role["id"] in named:
+            sentences.append(f"I also {fact}.")
+            continue
+        named.add(role["id"])
+        where = f"At {role['employer']}, as {role['title']}," if re.search(r"sales", role["title"], re.I) else f"At {role['employer']}"
+        sentences.append(f"{where} I {fact}.")
     evidence_paragraph = " ".join(sentences) or "My last full role was case-based operations work: documents, deadlines and accurate records."
     geo = analysis.get("geo", {})
     where = "I live in Thessaloniki" if geo.get("greece_remote") == "onsite" else "I am based in Thessaloniki and work comfortably remotely"

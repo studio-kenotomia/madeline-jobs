@@ -33,6 +33,7 @@ jobs:
       DASH_KEY: ${{ secrets.DASH_KEY }}
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
       BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+      RADAR_SYNC_TOKEN: ${{ secrets.RADAR_SYNC_TOKEN }}
       RESEND_FROM: ${{ vars.RESEND_FROM }}
       ALERT_TO: ${{ secrets.ALERT_TO }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -49,6 +50,12 @@ jobs:
           else
             echo "no state branch yet"
           fi
+          mkdir -p media
+          if git fetch --depth=1 origin media 2>/dev/null; then
+            git --work-tree=media checkout origin/media -- . && git reset -q
+            echo "restored $(ls media | wc -l) media files"
+          fi
+          ls media > /tmp/media-before.txt
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -64,7 +71,7 @@ jobs:
           if [ "${{ github.event_name }}" = "issues" ]; then MODE=inbox; fi
           FORCE=""
           if [ "${{ github.event.inputs.force }}" = "true" ]; then FORCE="--force"; fi
-          python run.py --primary --mode "$MODE" $FORCE --state state/state.enc --site site
+          python run.py --primary --mode "$MODE" $FORCE --state state/state.enc --site site --media media
       - name: Assemble site
         run: |
           cp -R web/. site/
@@ -79,6 +86,17 @@ jobs:
           git add state.enc
           git commit -qm "state $(date -u +%FT%TZ)"
           git push -qf "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" state:state
+      - name: Save media
+        run: |
+          ls media > /tmp/media-after.txt
+          if cmp -s /tmp/media-before.txt /tmp/media-after.txt; then echo "media unchanged"; exit 0; fi
+          cd media
+          git init -q -b media
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add -A
+          git commit -qm "media $(date -u +%FT%TZ)"
+          git push -qf "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" media:media
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
