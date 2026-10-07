@@ -17,14 +17,35 @@ def now_iso() -> str:
 
 
 def strip_html(html: str) -> str:
-    value = re.sub(r"(?is)<(script|style|noscript).*?</\1>", " ", html or "")
-    value = re.sub(r"(?i)<br\s*/?>|</p>|</li>|</h[1-6]>|</div>", "\n", value)
+    value = unescape(unescape(html or ""))
+    value = re.sub(r"(?is)<(script|style|noscript).*?</\1>", " ", value)
+    value = re.sub(r"(?i)<br\s*/?>|</p>|</li>|</h[1-6]>|</div>|</tr>", "\n", value)
     value = re.sub(r"(?i)<li[^>]*>", "\n• ", value)
     value = re.sub(r"(?s)<[^>]+>", " ", value)
-    value = unescape(value)
+    value = re.sub(r"\bclass=\"[^\"]*\">", " ", value)
     value = re.sub(r"[ \t\u00a0]+", " ", value)
-    value = re.sub(r"\n\s*\n+", "\n", value)
+    value = re.sub(r" *\n *", "\n", value)
+    value = re.sub(r"\n{3,}", "\n\n", value)
     return value.strip()
+
+
+def readable(text: str) -> str:
+    """Plain text for a card. Drops leftover markup, bare links and JSON blobs."""
+    value = strip_html(text or "")
+    if value.lstrip()[:1] in "{[":
+        return ""
+    kept = []
+    for line in value.splitlines():
+        stripped = line.strip()
+        if re.match(r"(?i)^(headquarters|url|company website|apply url)\b", stripped):
+            continue
+        if re.fullmatch(r"https?://\S+", stripped):
+            continue
+        kept.append(stripped)
+    value = re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
+    if re.fullmatch(r"https?://\S+", value):
+        return ""
+    return value
 
 
 def language(text_value: str) -> str:

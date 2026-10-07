@@ -18,8 +18,35 @@ QUERIES = [
 ]
 
 
+GREECE_QUERIES = [
+    '"Θεσσαλονίκη" (γραμματεία OR "διοικητική υποστήριξη" OR "βοηθός έργου") -site:facebook.com -site:instagram.com -site:youtube.com',
+    '"Thessaloniki" ("project assistant" OR "administrative assistant" OR "office administrator") (vacancy OR hiring) -site:facebook.com -site:instagram.com -site:linkedin.com',
+    'site:skywalker.gr Θεσσαλονίκη (assistant OR coordinator OR γραμματεία OR διοικητικ)',
+    'site:kariera.gr Θεσσαλονίκη (assistant OR coordinator OR γραμματεία OR operations)',
+    '"Θεσσαλονίκη" "πρόσκληση εκδήλωσης ενδιαφέροντος" (διοικητικ OR έργου OR γραμματεία) 2026 -site:facebook.com',
+]
+
+
 def enabled() -> bool:
-    return bool(os.environ.get("BRAVE_API_KEY"))
+    return bool(os.environ.get("SERPER_API_KEY") or os.environ.get("BRAVE_API_KEY"))
+
+
+def serper(limit_queries: int = 2, offset: int = 0) -> List[Dict]:
+    """Google results via Serper. Each query costs one credit, so callers stay at a couple per half day."""
+    key = os.environ.get("SERPER_API_KEY")
+    if not key:
+        return []
+    leads = []
+    chosen = GREECE_QUERIES[offset % len(GREECE_QUERIES):] + GREECE_QUERIES[: offset % len(GREECE_QUERIES)]
+    for query in chosen[:limit_queries]:
+        data = http.post_json(
+            "https://google.serper.dev/search",
+            {"q": query, "gl": "gr", "hl": "el", "num": 8, "tbs": "qdr:m"},
+            headers={"X-API-KEY": key}, check_robots=False,
+        )
+        for result in data.get("organic") or []:
+            leads.append({"url": result.get("link"), "title": result.get("title"), "query": query, "snippet": result.get("snippet", "")})
+    return leads
 
 
 def brave(limit_queries: int = 6, offset: int = 0) -> List[Dict]:

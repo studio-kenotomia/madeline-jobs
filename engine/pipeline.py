@@ -138,7 +138,13 @@ def merge(state: Dict, results: Dict[str, Dict], now: datetime, rejections: Coun
         present = set()
         for job in result["jobs"]:
             if not job.get("title") or job["title"] == "(outside Greece)":
-                rejections["geography"] += 1
+                rejections["unreadable"] += 1
+                continue
+            if rank.posted_too_old(job, now):
+                rejections["older_than_a_year"] += 1
+                existing_old = state["jobs"].get(job["id"]) or state["jobs"].get(state["fingerprints"].get(model.fingerprint(job), ""))
+                if existing_old and existing_old.get("open_status") != "closed":
+                    existing_old.update({"open_status": "closed", "closed_at": now.isoformat(), "closed_reason": "Posted more than a year ago."})
                 continue
             analysis = rank.evaluate(job, first_seen=now.isoformat(), soft_weights=weights)
             if analysis["rejection"]:
@@ -167,7 +173,7 @@ def merge(state: Dict, results: Dict[str, Dict], now: datetime, rejections: Coun
                     existing["content_hash"] = job["content_hash"]
                     existing["last_changed"] = now.isoformat()
                     existing.setdefault("badges_extra", []).append("Description changed")
-                if existing.get("open_status") == "closed":
+                if existing.get("open_status") == "closed" and not rank.posted_too_old(job, now):
                     existing["open_status"] = "open"
                     existing.setdefault("badges_extra", []).append("Reopened")
                 existing["last_seen"] = now.isoformat()
@@ -195,9 +201,31 @@ def merge(state: Dict, results: Dict[str, Dict], now: datetime, rejections: Coun
     return new_ids
 
 
+def repair_listings(state: Dict) -> int:
+    """Turn stored junk (a link, or a button label) back into a title and a description."""
+    fixed = 0
+    for job in state["jobs"].values():
+        changed = False
+        if job.get("source") == "skywalker":
+            changed = greek.repair_skywalker(job)
+        elif str(job.get("source", "")).startswith("smartrecruiters"):
+            changed = ats.repair_smartrecruiters(job)
+        text = model.readable(job.get("description_text") or "")
+        if text and text != (job.get("description_text") or "") and not str(job.get("description_text") or "").lstrip().startswith("{"):
+            job["description_text"] = text
+            changed = True
+        if changed:
+            fixed += 1
+    return fixed
+
+
 def expire(state: Dict, now: datetime) -> None:
     today = now.date().isoformat()
     for job in state["jobs"].values():
+        if job.get("open_status") != "closed" and rank.posted_too_old(job, now):
+            job["open_status"] = "closed"
+            job["closed_at"] = now.isoformat()
+            job["closed_reason"] = "Posted more than a year ago."
         if job.get("open_status") != "closed" and job.get("valid_through") and job["valid_through"] < today:
             job["open_status"] = "closed"
             job["closed_at"] = now.isoformat()
@@ -316,9 +344,16 @@ def angle_for(node: Dict) -> str:
     return "Office or operations coordination in English."
 
 
+def _fit_key(job: Dict):
+    geo = ((job.get("analysis") or {}).get("geo") or {}).get("greece_remote")
+    place = {"onsite": 0, "confirmed": 1, "likely": 2, "unclear": 3}.get(geo, 4)
+    age = ((job.get("analysis") or {}).get("freshness") or {}).get("age_days")
+    return (place, -(job.get("analysis") or {}).get("score", 0), age if isinstance(age, int) else 120)
+
+
 def build_documents(state: Dict, now: datetime) -> None:
-    ranked = sorted([j for j in state["jobs"].values() if j.get("open_status") != "closed"], key=lambda j: -(j.get("analysis") or {}).get("score", 0))
-    targets = [j for j in ranked if (j.get("analysis") or {}).get("tier") in ("exceptional", "apply", "worth")][:14]
+    ranked = sorted([j for j in state["jobs"].values() if j.get("open_status") != "closed"], key=_fit_key)
+    targets = [j for j in ranked if (j.get("analysis") or {}).get("tier") in ("exceptional", "apply", "worth")][:18]
     targets += [j for j in ranked if (j.get("analysis") or {}).get("tier") == "verify"][:3]
     targets += [j for j in state["jobs"].values() if j.get("application_status") in ("saved", "prepared") and j not in targets]
     for job in targets:
@@ -338,8 +373,8 @@ def build_documents(state: Dict, now: datetime) -> None:
         job["doc_generated_at"] = now.isoformat()
 
 
-def file_targets(state: Dict, limit: int = 8) -> List[Dict]:
-    ranked = sorted([j for j in state["jobs"].values() if j.get("open_status") != "closed" and j.get("cv_model")], key=lambda j: -(j.get("analysis") or {}).get("score", 0))
+def file_targets(state: Dict, limit: int = 12) -> List[Dict]:
+    ranked = sorted([j for j in state["jobs"].values() if j.get("open_status") != "closed" and j.get("cv_model")], key=_fit_key)
     chosen = [j for j in ranked if (j.get("analysis") or {}).get("tier") in ("exceptional", "apply", "worth")][:limit]
     chosen += [j for j in state["jobs"].values() if j.get("cv_model") and j.get("application_status") in ("saved", "prepared", "submitted") and j not in chosen]
     return chosen
@@ -487,7 +522,7 @@ def public_card(state: Dict, job: Dict, now: datetime, clean) -> Dict:
         "languages": a.get("languages", []), "listing": status, "tier": a.get("tier"), "tier_label": TIER_LABEL.get(a.get("tier"), ""), "score": a.get("score"),
         "reasons": [clean(r) for r in a.get("reasons", [])], "gaps": [clean(g) for g in a.get("gaps", [])], "blockers": [clean(b) for b in a.get("blockers", [])],
         "unknowns": [clean(u) for u in a.get("unknowns", [])], "highlights": highlights, "badges": a.get("badges", []), "urgency": a.get("urgency"), "family": a.get("family"),
-        "ai_policy": a.get("ai_policy"), "description": (job.get("description_text") or "")[:5000], "language": job.get("language"), "greek_gist": a.get("greek_gist", []),
+        "ai_policy": a.get("ai_policy"), "description": model.readable(job.get("description_text") or "")[:4000], "language": job.get("language"), "greek_gist": a.get("greek_gist", []),
         "url": job.get("canonical_url"), "apply_url": job.get("application_url") or job.get("canonical_url"), "source": job.get("source"), "source_type": job.get("source_type"),
         "also_seen": len(job.get("secondary_sources", [])), "changes": len(job.get("versions") or []), "image": pictures["image"], "image_kind": pictures["image_kind"],
         "logo": pictures["logo"], "art": pictures["art"], "has_docs": bool(job.get("cv_model")), "files": job.get("rendered_files", []), "components": a.get("components"),
@@ -497,8 +532,9 @@ def public_card(state: Dict, job: Dict, now: datetime, clean) -> Dict:
 
 def public_feed(state: Dict, now: datetime, cycle: Dict) -> Dict:
     clean = _sanitizer()
-    open_jobs = [j for j in state["jobs"].values() if j.get("open_status") != "closed" and (j.get("analysis") or {}).get("tier") not in (None, "archive")]
-    open_jobs.sort(key=lambda j: (TIER_ORDER.get(j["analysis"]["tier"], 9), -j["analysis"].get("score", 0), -(datetime.fromisoformat(j["first_seen"]).timestamp())))
+    open_jobs = [j for j in state["jobs"].values() if j.get("open_status") != "closed" and not rank.posted_too_old(j, now) and (j.get("analysis") or {}).get("tier") not in (None, "archive")
+                 and not (j.get("title") or "").lower().startswith("word.send") and not (j.get("title") or "").startswith("http")]
+    open_jobs.sort(key=lambda j: (TIER_ORDER.get(j["analysis"]["tier"], 9),) + _fit_key(j))
     deck = [public_card(state, j, now, clean) for j in open_jobs[:260]]
     removed_cutoff = (now - timedelta(days=30)).isoformat()
     removed = [public_card(state, j, now, clean) for j in state["jobs"].values() if j.get("open_status") == "closed" and (j.get("closed_at") or "") > removed_cutoff and (j.get("analysis") or {}).get("tier") not in ("archive", None)]
@@ -624,6 +660,7 @@ def run(*, state_path: Path, site_out: Optional[Path], key: str, primary: bool, 
     process_imports(state, now, results)
     raw = sum(len(r["jobs"]) for r in results.values())
     new_ids = merge(state, results, now, rejections)
+    repaired = repair_listings(state)
     expire(state, now)
     rechecked = recheck.check(state, now) if mode == "full" else {}
     rerank(state, now)
@@ -640,7 +677,7 @@ def run(*, state_path: Path, site_out: Optional[Path], key: str, primary: bool, 
             pictured = {"error": f"{type(error).__name__}: {error}"[:160]}
     mail_log = notify_cycle(state, now, new_ids, primary) if mode == "full" else []
     ranked = sum(1 for j in state["jobs"].values() if (j.get("analysis") or {}).get("tier") in VISIBLE)
-    cycle = {"at": now.isoformat(), "mode": mode, "sources": [s["id"] for s in chosen], "raw": raw, "new": len(new_ids), "ranked": ranked,
+    cycle = {"at": now.isoformat(), "mode": mode, "sources": [s["id"] for s in chosen], "raw": raw, "new": len(new_ids), "ranked": ranked, "repaired": repaired,
              "rejections": dict(rejections), "duration": round(time.time() - started, 1), "mail": mail_log, "migrated": migrated,
              "synced": synced, "rechecked": rechecked, "media": pictured}
     state["runs"] = (state["runs"] + [cycle])[-300:]

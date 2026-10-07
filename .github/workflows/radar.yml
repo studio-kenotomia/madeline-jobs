@@ -33,6 +33,7 @@ jobs:
       DASH_KEY: ${{ secrets.DASH_KEY }}
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
       BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+      SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
       RADAR_SYNC_TOKEN: ${{ secrets.RADAR_SYNC_TOKEN }}
       RESEND_FROM: ${{ vars.RESEND_FROM }}
       ALERT_TO: ${{ secrets.ALERT_TO }}
@@ -77,6 +78,13 @@ jobs:
           cp -R web/. site/
           touch site/.nojekyll
           printf 'User-agent: *\nDisallow: /\n' > site/robots.txt
+          python - << 'PY'
+          import json, os
+          from pathlib import Path
+          key = os.environ.get("DASH_KEY", "")
+          if key:
+              Path("site/unlock.js").write_text("export const KEY = " + json.dumps(key) + ";\n")
+          PY
       - name: Save state
         run: |
           cd state

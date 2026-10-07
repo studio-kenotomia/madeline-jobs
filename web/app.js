@@ -34,11 +34,22 @@ async function route() {
   }
 }
 
+async function bootKey() {
+  try {
+    const mod = await import("./unlock.js");
+    if (mod.KEY) {
+      store.key = mod.KEY;
+      localStorage.setItem("jr-key", mod.KEY);
+    }
+  } catch { /* written into the site when it is published */ }
+}
+
 async function start() {
   $("#brand-mark").innerHTML = icon("flame");
   $("#top-browse").innerHTML = icon("search");
   $("#top-me").innerHTML = icon("user");
   readHash();
+  await bootKey();
   try {
     await load();
   } catch (error) {

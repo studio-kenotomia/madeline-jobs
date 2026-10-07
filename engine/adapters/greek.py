@@ -53,6 +53,56 @@ def kariera(known: Set[str], detail_limit: int = 45) -> List[Dict]:
 
 
 SKYWALKER_TERMS = ["administrative", "assistant", "coordinator", "project", "office", "research", "environment", "operations", "γραμματεία", "διοικητικ", "βοηθός", "περιβάλλον", "english"]
+GREEK_MONTHS = {
+    "ιανουαρίου": 1, "φεβρουαρίου": 2, "μαρτίου": 3, "απριλίου": 4, "μαΐου": 5, "μαιου": 5, "ιουνίου": 6,
+    "ιουλίου": 7, "αυγούστου": 8, "σεπτεμβρίου": 9, "οκτωβρίου": 10, "νοεμβρίου": 11, "δεκεμβρίου": 12,
+}
+
+
+def parse_listing_text(raw: str) -> Dict:
+    """Pull a real title, date and place out of a Skywalker listing card."""
+    flat = re.sub(r"\s+", " ", strip_html(raw))
+    date_value = ""
+    dated = re.search(r"(\d{1,2})\s+([Α-Ωα-ωά-ώϊϋΐΰ]+)\s+(20\d{2})", flat)
+    if dated and dated.group(2).lower() in GREEK_MONTHS:
+        date_value = f"{dated.group(3)}-{GREEK_MONTHS[dated.group(2).lower()]:02d}-{int(dated.group(1)):02d}"
+    title = ""
+    titled = re.search(r"20\d{2}\s+(.+?)\s+περιοχ", flat) or re.search(r"πριν\s+\d+\s+\S+\s+(.+?)\s+περιοχ", flat)
+    if titled:
+        title = re.sub(r"^(Νέα θέση εργασίας\s+)?(πριν\s+\d+\s+\S+\s+)?", "", titled.group(1)).strip(" -–|")
+    if not title or title.lower().startswith("word.send") or title.lower().startswith("http"):
+        title = ""
+    location = "Greece"
+    if re.search(r"Θεσσαλονίκ|Thessaloniki|Καλαμαριά|Πυλαία|Θέρμη", flat):
+        location = "Thessaloniki, Greece"
+    elif re.search(r"Αθήν|Athens|Αττικ", flat):
+        location = "Athens, Greece"
+    elif re.search(r"Πάτρ", flat):
+        location = "Patras, Greece"
+    elif re.search(r"Ηράκλει|Χανί", flat):
+        location = "Crete, Greece"
+    mode = "remote" if re.search(r"Εξ αποστάσεως|\bremote\b", flat, re.I) else "hybrid" if "Υβριδικ" in flat else "onsite"
+    pay = re.search(r"από\s+[\d.,]+\s+εώς\s+[\d.,]+\s*€\s*/\s*μήνας", flat)
+    parts = [p for p in (title, location, date_value, pay.group(0) if pay else "") if p]
+    note = "Skywalker only gives automated readers the title, place and date. Open the listing for the full advertisement."
+    return {"title": title[:180], "date": date_value, "location": location, "work_mode": mode, "description": (". ".join(parts) + ". " + note).strip()}
+
+
+def repair_skywalker(job: Dict) -> bool:
+    raw = job.get("description_text") or ""
+    title = (job.get("title") or "").lower()
+    if not (title.startswith("word.send") or title.startswith("http") or "class=" in raw or "περιοχές" in raw[:900]):
+        return False
+    parsed = parse_listing_text(raw)
+    if not parsed["title"]:
+        return False
+    job["title"] = parsed["title"]
+    if parsed["date"]:
+        job["date_posted"] = parsed["date"]
+    job["location_raw"] = parsed["location"]
+    job["work_mode"] = parsed["work_mode"]
+    job["description_text"] = parsed["description"]
+    return True
 
 
 def skywalker() -> List[Dict]:
@@ -65,16 +115,18 @@ def skywalker() -> List[Dict]:
             if not ad:
                 continue
             ad_id, slug = ad.group(1), html_lib.unescape(ad.group(2))
-            title_match = re.search(r'alt="([^"]+)"', block)
-            title = html_lib.unescape(title_match.group(1)) if title_match else slug.replace("-", " ")
-            company = re.search(r'/profile/etairias/[^/]+/([^"]+)"', block)
             text_value = strip_html(block)
-            mode = "remote" if "Εξ αποστάσεως" in text_value or "remote" in text_value.lower() else "hybrid" if "Υβριδικ" in text_value else ""
+            parsed = parse_listing_text(text_value)
+            title = parsed["title"] or slug.replace("-", " ")
+            if title.lower().startswith("word.send"):
+                continue
+            company = re.search(r'/profile/etairias/[^/]+/([^"]+)"', block)
             logo = re.search(r'<img[^>]+src="(https://www\.skywalker\.gr/storage/clients/logos/[^"]+)"', block)
             job = make_job(
                 source="skywalker", source_type="board", title=title, company=(company.group(1).replace("-", " ").title() if company else ""),
-                url=f"https://www.skywalker.gr/el/aggelia-ergasias/{ad_id}/{urllib.parse.quote(slug)}", location=_location_hint(text_value),
-                description_text=text_value[:1500], source_job_id=ad_id, work_mode=mode, extra={"detail": "listing only; the site blocks automated reads of full ads", "logo": logo.group(1) if logo else ""},
+                url=f"https://www.skywalker.gr/el/aggelia-ergasias/{ad_id}/{urllib.parse.quote(slug)}", location=parsed["location"],
+                description_text=parsed["description"], source_job_id=ad_id, date_posted=parsed["date"], work_mode=parsed["work_mode"],
+                extra={"detail": "listing only; the site blocks automated reads of full ads", "logo": logo.group(1) if logo else ""},
             )
             jobs[job["id"]] = job
     return list(jobs.values())

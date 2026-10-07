@@ -73,17 +73,18 @@ def build() -> List[Dict]:
     add("ekby", "EKBY calls", 180, lambda ctx: pages.html_announcements("ekby", "EKBY / Goulandris", "https://ekby.gr/news/prokirikseis-proskliseis/", "Thermi, Thessaloniki", r"prosklisi|proslipsi|θέσ"), kind="page")
     add("afs", "American Farm School / Perrotis", 180, lambda ctx: pages.html_announcements("afs", "American Farm School", "https://afs.edu.gr/en/human-resources/", "Thessaloniki, Greece", r"opening|position|vacanc|θέση|officer|assistant|coordinator", r"faculty|lecturer|teacher|professor"), kind="page")
     if search.enabled():
-        add("web-search", "Web search discovery (Brave)", 180, lambda ctx: web_search(ctx), kind="search", note="Search results are verified on the original page before they count.")
+        add("web-search", "Web search, Greece and Thessaloniki", 720, lambda ctx: web_search(ctx), kind="search", note="Two searches each half day. Each result is read on the original page before it counts.")
     return sources
 
 
 def web_search(ctx: Dict) -> List[Dict]:
     from .model import job_from_jsonld, jobpostings_from_html
-    offset = int(datetime.now(timezone.utc).timestamp() // 10800)
+    offset = int(datetime.now(timezone.utc).timestamp() // 43200)
+    leads = search.serper(limit_queries=2, offset=offset) or search.brave(limit_queries=2, offset=offset)
     jobs = []
-    for lead in search.brave(limit_queries=6, offset=offset * 6):
+    for lead in leads:
         url = lead.get("url") or ""
-        if not url or not http.public_url(url):
+        if not url or not http.public_url(url) or any(host in url for host in ("facebook.com", "instagram.com", "tiktok.com", "youtube.com", "linkedin.com", "twitter.com")):
             continue
         try:
             page = http.text(url, timeout=20)

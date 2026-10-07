@@ -70,8 +70,46 @@ def ashby(board: str, company: str) -> List[Dict]:
     return jobs
 
 
+def _from_smartrecruiters_blob(blob: str, company_id: str, company: str, url: str) -> Dict:
+    data = json.loads(blob)
+    sections = (data.get("content") or {}).get("sections") or {}
+    chunks = []
+    if isinstance(sections, dict):
+        for key in ("jobDescription", "qualifications", "additionalInformation"):
+            section = sections.get(key) or {}
+            if isinstance(section, dict) and section.get("text"):
+                label = section.get("title") or ""
+                chunks.append(f"{label}\n{section['text']}" if label else section["text"])
+    slug = url.rstrip("/").split("/")[-1]
+    fallback = slug.split("--", 1)[-1].replace("-", " ").strip().title() if "--" in slug else ""
+    return make_job(
+        source=f"smartrecruiters:{company_id}", source_type="ats", title=data.get("jobTitle") or fallback or company,
+        company=(data.get("company") or {}).get("name") or company, url=url, location=data.get("jobAdLocation") or "",
+        description_text=strip_html("\n\n".join(chunks)), source_job_id=str(data.get("uuid") or slug.split("-")[0]),
+        date_posted=data.get("postedDate") or "", employment_type=data.get("employmentType") or "", extra={"ats": "smartrecruiters"},
+    )
+
+
+def repair_smartrecruiters(job: Dict) -> bool:
+    raw = (job.get("description_text") or job.get("description_html") or "").strip()
+    title = job.get("title") or ""
+    if not (raw.startswith("{") or title.startswith("http")):
+        return False
+    if not raw.startswith("{"):
+        return False
+    try:
+        fixed = _from_smartrecruiters_blob(raw, job.get("source", "").split(":", 1)[-1], job.get("company") or "", job.get("canonical_url") or "")
+    except (json.JSONDecodeError, TypeError):
+        return False
+    for field in ("title", "company", "location_raw", "description_text", "date_posted", "employment_type"):
+        if fixed.get(field):
+            job[field] = fixed[field]
+    job["language"] = fixed.get("language") or job.get("language")
+    return True
+
+
 def smartrecruiters(company_id: str, company: str, detail_limit: int = 30, known: set = frozenset()) -> List[Dict]:
-    """The SmartRecruiters API disallows crawlers in robots.txt, so this reads the public careers page and JSON-LD on job pages."""
+    """The SmartRecruiters API disallows crawlers in robots.txt, so this reads the public careers page and the job page."""
     listing = http.text(f"https://careers.smartrecruiters.com/{company_id}")
     links = list(dict.fromkeys(re.findall(rf'href="(https://jobs\.smartrecruiters\.com/{re.escape(company_id)}/[^"]+)"', listing)))
     jobs = []
@@ -81,6 +119,15 @@ def smartrecruiters(company_id: str, company: str, detail_limit: int = 30, known
         except Exception:
             continue
         posting_id = url.rstrip("/").split("/")[-1].split("-")[0]
+        start = page.find('{"uuid"')
+        if start >= 0:
+            try:
+                job = _from_smartrecruiters_blob(page[start: page.rfind("}") + 1], company_id, company, url)
+                job["source_job_id"] = posting_id
+                jobs.append(job)
+                continue
+            except (json.JSONDecodeError, TypeError):
+                pass
         found = jobpostings_from_html(page)
         if found:
             job = job_from_jsonld(found[0], source=f"smartrecruiters:{company_id}", url=url, company=company)
@@ -88,10 +135,13 @@ def smartrecruiters(company_id: str, company: str, detail_limit: int = 30, known
             job["source_job_id"] = posting_id
             job["extra"]["ats"] = "smartrecruiters"
             jobs.append(job)
-        else:
-            title = re.search(r"<h1[^>]*>(.*?)</h1>", page, re.S)
-            jobs.append(make_job(source=f"smartrecruiters:{company_id}", source_type="ats", title=strip_html(title.group(1)) if title else url, company=company, url=url,
-                                 description_html=page, source_job_id=posting_id, extra={"ats": "smartrecruiters"}))
+            continue
+        title = re.search(r"<h1[^>]*>(.*?)</h1>", page, re.S)
+        heading = strip_html(title.group(1)) if title else ""
+        if not heading or heading.startswith("http"):
+            continue
+        jobs.append(make_job(source=f"smartrecruiters:{company_id}", source_type="ats", title=heading, company=company, url=url,
+                             description_text=strip_html(page)[:8000], source_job_id=posting_id, extra={"ats": "smartrecruiters"}))
     return jobs
 
 

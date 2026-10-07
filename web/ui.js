@@ -25,15 +25,33 @@ const dateLabel = iso => {
   if (days <= 7) return `${pretty} (${days} day${days === 1 ? "" : "s"})`;
   return pretty;
 };
+function postedDays(card) {
+  if (!card.posted) return null;
+  return Math.round((Date.now() - new Date(card.posted + "T12:00:00Z")) / 86400000);
+}
 function postedLabel(card) {
-  if (!card.posted) return `Found ${ago(card.first_seen, true)}`;
-  const days = Math.round((Date.now() - new Date(card.posted + "T12:00:00Z")) / 86400000);
+  const days = postedDays(card);
+  const foundRecently = card.first_seen && Date.now() - new Date(card.first_seen) < 7 * 86400000;
+  if (days == null) return `Found ${ago(card.first_seen)}`;
   if (days <= 0) return "Posted today";
   if (days === 1) return "Posted yesterday";
   if (days < 45) return `Posted ${days} days ago`;
+  if (foundRecently) return `Found ${ago(card.first_seen)}`;
   return `Open since ${new Date(card.posted + "T12:00:00Z").toLocaleDateString(undefined, { month: "short", year: "numeric" })}`;
 }
-const postedFull = card => card.posted ? postedLabel(card).replace("Open since", "Since") : "Not stated";
+function postedFull(card) {
+  const days = postedDays(card);
+  const foundRecently = card.first_seen && Date.now() - new Date(card.first_seen) < 7 * 86400000;
+  if (days == null) return "Date not stated";
+  const source = new Date(card.posted + "T12:00:00Z").toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  if (days >= 45 && foundRecently) return `Source date ${source} · first seen here ${ago(card.first_seen)}`;
+  return postedLabel(card).replace("Open since", "Since");
+}
+function prose(text) {
+  const clean = String(text || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  if (!clean || clean.startsWith("{") || clean.startsWith("[") || /^https?:\/\/\S+$/.test(clean)) return "";
+  return clean;
+}
 const money = s => s ? `${s.min}${s.max && s.max !== s.min ? "–" + s.max : ""} ${s.currency || ""}${s.period ? " / " + String(s.period).toLowerCase().replace("year", "yr").replace("month", "mo") : ""}` : "";
 const initials = name => (name || "?").split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join("").toUpperCase();
 const logoHTML = (card, cls = "logo") => `<div class="${cls}" data-initials="${esc(initials(card.company))}">${card.logo ? `<img src="${esc(card.logo)}" alt="" data-hide-on-error>` : esc(initials(card.company))}</div>`;
@@ -137,7 +155,7 @@ export function detailHTML(card, { hero = true, steps = false } = {}) {
     ${req ? `<div class="sec">What they ask for</div><div class="req">${req}</div>` : ""}
     ${(card.greek_gist || []).length ? `<div class="sec">The Greek ad says</div><div class="chips">${card.greek_gist.map(g => `<span class="chip blue">${esc(g)}</span>`).join("")}</div>` : ""}
     <div class="sec">About the role</div>
-    <div class="desc" data-desc>${esc(card.description || "Open the listing for the full text.")}</div>
+    <div class="desc" data-desc>${esc(prose(card.description) || "Open the listing for the full advertisement.")}</div>
     <p><button class="btn slim" data-more>Read the full ad</button></p>
     <p class="muted small">Source: ${esc(card.source)}${card.also_seen ? ` · also on ${card.also_seen} other site${card.also_seen > 1 ? "s" : ""}` : ""}${card.changes ? ` · changed ${card.changes}×` : ""}</p>`;
 }
@@ -145,17 +163,17 @@ export function detailHTML(card, { hero = true, steps = false } = {}) {
 function nextStepsHTML(card) {
   const d = decision(card.id);
   const files = card.files || [];
-  const locked = !unlocked();
-  const fileBtn = (name, label, ic) => `<button class="btn slim" data-file="${name}" ${locked || !files.includes(name) ? "disabled" : ""}>${icon(ic)}${label}</button>`;
+  const ready = unlocked() && (card.has_docs || files.length);
+  const fileBtn = (name, label, ic) => `<button class="btn slim" data-file="${name}" ${ready ? "" : "disabled"}>${icon(ic)}${label}</button>`;
   return `<div class="sec">Next steps</div>
     <div class="chips" style="gap:8px">
       ${fileBtn("cv_pdf", "CV PDF", "download")}${fileBtn("cv_docx", "CV Word", "doc")}${fileBtn("cover_pdf", "Cover letter", "doc")}
-      <a class="btn slim" href="#edit=${esc(card.id)}" ${locked || !card.has_docs ? 'aria-disabled="true" style="opacity:.45;pointer-events:none"' : ""}>${icon("edit")}Edit CV</a>
+      <a class="btn slim" href="#edit=${esc(card.id)}" ${ready ? "" : 'aria-disabled="true" style="opacity:.45;pointer-events:none"'}>${icon("edit")}Edit CV</a>
       <a class="btn slim" href="${esc(card.apply_url || card.url)}" target="_blank" rel="noopener">${icon("external")}Open listing</a>
       ${d === "applied" ? `<span class="tag applied">Applied</span>` : `<button class="btn slim like" data-applied>${icon("check")}I applied</button>`}
-      ${!locked && files.includes("cv_pdf") ? `<button class="btn slim" data-bridge>${icon("bolt")}${/^(127\.0\.0\.1|localhost)$/.test(location.hostname) ? "Fill the form on this Mac" : "Fill the form on the Mac"}</button>` : ""}
+      ${unlocked() && files.includes("cv_pdf") ? `<button class="btn slim" data-bridge>${icon("bolt")}${/^(127\.0\.0\.1|localhost)$/.test(location.hostname) ? "Fill the form on this Mac" : "Fill the form on the Mac"}</button>` : ""}
     </div>
-    ${locked ? `<p class="muted small">Her CV files unlock after she opens the link from one of her emails once on this phone.</p>` : !files.length ? `<p class="muted small">Tailored files appear for her top matches within the next cycle.</p>` : ""}
+    ${!unlocked() ? `<p class="muted small">Reload the page. Her CV downloads with the app.</p>` : !card.has_docs && !files.length ? `<p class="muted small">A tailored CV is written for her strongest matches. Save this one and it is prepared on the next update.</p>` : ""}
     ${card.ai_policy === "prohibited" ? `<p class="small" style="color:#8a5a00">This employer bans AI-written answers. Use the CV as a fact sheet and write the form answers in her own words.</p>` : ""}`;
 }
 
@@ -204,11 +222,16 @@ export function wireDetail(root, card) {
   root.querySelectorAll("[data-file]").forEach(b => b.onclick = async () => {
     const name = b.dataset.file;
     const type = name.endsWith("pdf") ? "application/pdf" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-    try {
-      const blob = await fileBlob(`${card.id}-${name}`, type);
-      const stem = (store.priv?.profile?.name || "CV").replace(/\W+/g, "_");
-      download(blob, `${stem}_${name.startsWith("cv") ? "CV" : "Cover_letter"}_${(card.company || "").replace(/\W+/g, "_")}.${name.endsWith("pdf") ? "pdf" : "docx"}`);
-    } catch { toast("That file is not ready yet."); }
+    const stem = (store.priv?.profile?.name || "CV").replace(/\W+/g, "_");
+    if ((card.files || []).includes(name)) {
+      try {
+        const blob = await fileBlob(`${card.id}-${name}`, type);
+        download(blob, `${stem}_${name.startsWith("cv") ? "CV" : "Cover_letter"}_${(card.company || "").replace(/\W+/g, "_")}.${name.endsWith("pdf") ? "pdf" : "docx"}`);
+        return;
+      } catch { /* the editor can still produce it */ }
+    }
+    if (card.has_docs) { toast("Opening her CV. Use Word or PDF there."); location.hash = `edit=${card.id}`; return; }
+    toast("A tailored CV for this one is prepared on the next update.");
   });
   root.querySelector("[data-applied]")?.addEventListener("click", () => { decide(card.id, "applied"); toast(`${icon("check")} Marked as applied. Good luck!`); closeSheet(); });
   root.querySelector("[data-bridge]")?.addEventListener("click", async () => {
@@ -416,7 +439,7 @@ export function liked(root, params) {
   root.innerHTML = `<div class="page"><h1>Liked</h1><p class="lead">${entries.length} saved. Tap one for her tailored CV, the listing, and the next step.</p>
     <div class="filters">${[["all", "All"], ["todo", "To apply"], ["applied", "Applied"], ["removed", "Removed or closed"]].map(([k, l]) => `<button class="f ${filter === k ? "on" : ""}" data-f="${k}">${l}</button>`).join("")}</div>
     <div class="rows">${cards.map(c => rowCard(c, `<div class="next-steps">
-      <button class="btn slim" data-cv="${esc(c.id)}" ${!unlocked() || !(c.files || []).includes("cv_pdf") ? "disabled" : ""}>${icon("download")}CV</button>
+      <button class="btn slim" data-cv="${esc(c.id)}" ${unlocked() && (c.has_docs || (c.files || []).includes("cv_pdf")) ? "" : "disabled"}>${icon("download")}CV</button>
       <a class="btn slim" href="${esc(c.apply_url || c.url)}" target="_blank" rel="noopener">${icon("external")}Listing</a>
       ${decision(c.id) === "applied" ? "" : `<button class="btn slim like" data-applied="${esc(c.id)}">${icon("check")}Applied</button>`}</div>`)).join("") ||
       `<div class="panel"><h3>Nothing here yet</h3><p class="muted">Swipe right on a job in Discover and it lands here with its tailored CV.</p><a class="btn hot" href="#discover">${icon("cards")}Start swiping</a></div>`}</div></div>`;
@@ -424,7 +447,11 @@ export function liked(root, params) {
   root.querySelectorAll("[data-applied]").forEach(b => b.onclick = () => { decide(b.dataset.applied, "applied", { trackUndo: false }); toast(`${icon("check")} Marked as applied`); liked(root, {}); });
   root.querySelectorAll("[data-cv]").forEach(b => b.onclick = async () => {
     const card = cardFor(b.dataset.cv);
-    try { download(await fileBlob(`${card.id}-cv_pdf`, "application/pdf"), `${(store.priv?.profile?.name || "CV").replace(/\W+/g, "_")}_CV_${(card.company || "").replace(/\W+/g, "_")}.pdf`); } catch { toast("CV not ready yet."); }
+    if ((card.files || []).includes("cv_pdf")) {
+      try { download(await fileBlob(`${card.id}-cv_pdf`, "application/pdf"), `${(store.priv?.profile?.name || "CV").replace(/\W+/g, "_")}_CV_${(card.company || "").replace(/\W+/g, "_")}.pdf`); return; } catch { /* editor fallback */ }
+    }
+    if (card.has_docs) { location.hash = `edit=${card.id}`; return; }
+    toast("A tailored CV for this one is prepared on the next update.");
   });
   bindRows(root, "liked");
   if (params.open) { const card = cardFor(params.open); if (card) openSheet(card, "liked"); }
@@ -499,8 +526,8 @@ export function me(root) {
     <p class="lead">${swipeCount.filter(s => ["like", "superlike"].includes(s.d)).length} saved · ${swipeCount.filter(s => s.d === "applied").length} applied · ${swipeCount.filter(s => s.d === "pass").length} passed · ${({ synced: "synced across phones", syncing: "syncing…", offline: "offline, will sync later", local: "saved on this phone" })[store.syncState]}</p>
     <div class="panel"><h3>${icon("doc")} Her CV</h3>
       ${p ? `<p class="muted small">Edit the base CV and download it as Word or PDF. Tailored versions live on each liked job.</p><div class="chips" style="gap:8px"><a class="btn slim hot" href="#edit=base">${icon("edit")}Edit and download CV</a></div>`
-        : `<p class="muted small">Her CV and documents unlock on this phone when she opens the link from any job-radar email once. Or paste that link here:</p>
-           <div class="row" style="display:flex;gap:8px"><input type="url" id="unlock-link" placeholder="Paste the link from her email" style="flex:1"><button class="btn slim primary" id="unlock">Unlock</button></div>`}
+        : `<p class="muted small">Her CV did not load. Reload the page. If it still fails, paste a link that contains the code:</p>
+           <div class="row" style="display:flex;gap:8px"><input type="url" id="unlock-link" placeholder="Paste a link with the code" style="flex:1"><button class="btn slim primary" id="unlock">Unlock</button></div>`}
     </div>
     ${p ? `<div class="panel"><h3>${icon("shield")} Facts to confirm</h3><p class="muted small">Nothing waits for these. Until answered, CVs use the careful default.</p>
       <p class="small"><b>When did ${esc(second)} end?</b><br>${opts("role2_end", [["april-2026", "April 2026"], ["may-2026", "May 2026"], ["current", "Still there"]])}</p>

@@ -1,6 +1,6 @@
 const SHELL = "jr-shell-v1";
 const DATA = "jr-data-v1";
-const ASSETS = ["./", "index.html", "app.css", "app.js", "ui.js", "store.js", "icons.js", "crypto.js", "studio.js", "vendor/editor.js", "manifest.webmanifest",
+const ASSETS = ["./", "index.html", "app.css", "app.js", "ui.js", "store.js", "icons.js", "crypto.js", "studio.js", "unlock.js", "vendor/editor.js", "manifest.webmanifest",
   "art/thessaloniki.jpg", "art/greece.jpg", "art/remote.jpg", "icons/icon-192.png", "icons/icon-512.png"];
 
 self.addEventListener("install", event => {

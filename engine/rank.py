@@ -204,10 +204,21 @@ def freshness(job: Dict, first_seen: str) -> Dict:
         badges.append("Posting date unknown")
     score = 1.0
     if age_days is not None:
-        score = 1.0 if age_days <= 2 else 0.85 if age_days <= 7 else 0.65 if age_days <= 21 else 0.45 if age_days <= 45 else 0.25
+        score = 1.0 if age_days <= 2 else 0.92 if age_days <= 7 else 0.78 if age_days <= 21 else 0.6 if age_days <= 60 else 0.4 if age_days <= 180 else 0.22
     elif hours_seen is not None:
         score = 0.9 if hours_seen < 48 else 0.6
     return {"badges": badges, "age_days": age_days, "hours_since_seen": hours_seen, "deadline_days": deadline_days, "score": score}
+
+
+def posted_too_old(job: Dict, now: Optional[datetime] = None, days: int = 365) -> bool:
+    posted = (job.get("date_posted") or "")[:10]
+    if not posted:
+        return False
+    moment = now or datetime.now(timezone.utc)
+    try:
+        return (moment.date() - date.fromisoformat(posted)).days > days
+    except ValueError:
+        return False
 
 
 def languages(title: str, body: str) -> List[Dict]:
@@ -355,7 +366,14 @@ def evaluate(job: Dict, *, first_seen: str = "", soft_weights: Optional[Dict] = 
         reasons.append("The workplace runs in English.")
     if concepts.get("dutch"):
         reasons.append("Dutch is asked for. She is a native speaker.")
-    location_fit = {"onsite": 1.0, "confirmed": 0.95, "likely": 0.7, "unclear": 0.5, "no": 0.0}[geo["greece_remote"]]
+    location_fit = {"onsite": 1.0, "confirmed": 0.95, "likely": 0.7, "unclear": 0.45, "no": 0.0}[geo["greece_remote"]]
+    us_leaning = bool(re.search(
+        r"\b(united states|u\.s\.a?\.?|usa|atlanta|americas|north america)\b",
+        _low(job.get("location_raw"), (body or "")[:2000], " ".join(job.get("remote_regions") or [])),
+    ))
+    if us_leaning and geo["greece_remote"] not in ("onsite", "confirmed"):
+        location_fit = min(location_fit, 0.3)
+        gaps.append("The listing points at the US or the Americas. A long shot unless they name Greece.")
     coverage = evidence.coverage(matrix) if matrix else 0.55
     education_fit = 0.6 if concepts.get("degree_business") else 1.0
     domain = 0.6
@@ -385,10 +403,11 @@ def evaluate(job: Dict, *, first_seen: str = "", soft_weights: Optional[Dict] = 
         "seniority_fit": seniority_fit, "education_fit": education_fit, "domain_interest": domain, "freshness": fresh["score"],
         "source_confidence": source_conf, "application_effort": effort, "compensation_quality": pay,
     }
+    place_bonus = {"onsite": 8, "confirmed": 4, "likely": 1, "unclear": -4, "no": 0}[geo["greece_remote"]]
     base = (
         role_fit * 20 + coverage * 20 + location_fit * 18 + language_fit * 12 + seniority_fit * 12
         + education_fit * 5 + domain * 6 + source_conf * 8 + effort * 1 + pay * 2
-    ) / 1.04
+    ) / 1.04 + place_bonus
     soft = 0.0
     for key, weight in (soft_weights or {}).items():
         if key.startswith("family:") and key[7:] == family:
@@ -396,7 +415,7 @@ def evaluate(job: Dict, *, first_seen: str = "", soft_weights: Optional[Dict] = 
         if key.startswith("company:") and key[8:] == (job.get("company") or "").lower():
             soft += weight
     base = max(0.0, min(100.0, base + max(-8.0, min(8.0, soft))))
-    overall = round(base * (0.88 + 0.12 * fresh["score"]))
+    overall = round(base * (0.68 + 0.32 * fresh["score"]))
 
     strong_rows = [row for row in matrix if row["match"] == "strong"]
     for row in strong_rows[:3]:
@@ -421,6 +440,8 @@ def evaluate(job: Dict, *, first_seen: str = "", soft_weights: Optional[Dict] = 
     hard_blocker = any("strong Greek" in b or "driving" in b or "The role needs" in b for b in blockers)
     if hard_blocker:
         overall = min(overall, 55)
+    if us_leaning and geo["greece_remote"] not in ("onsite", "confirmed"):
+        overall = min(overall, 58)
     capped = commercial or seniority_fit < 0.5 or virtual or (years is not None and years >= 3) or (geo["greece_remote"] == "likely" and job.get("source_type") == "board")
     if capped:
         overall = min(overall, 73)
